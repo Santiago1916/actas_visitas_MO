@@ -3,6 +3,10 @@ import { Readable } from "stream";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import {
+  readGoogleOAuthTokenFromSupabase,
+  saveGoogleOAuthTokenToSupabase,
+} from "./supabaseService.js";
 
 const DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"];
 const DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
@@ -32,6 +36,13 @@ function requiredEnv(name) {
 
 function resolveOAuthTokenPath() {
   return process.env.GOOGLE_OAUTH_TOKEN_PATH || path.resolve(__dirname, "../oauth-token.json");
+}
+
+function useSupabaseOAuthTokenStore() {
+  const mode = String(process.env.GOOGLE_OAUTH_TOKEN_STORE || "").trim().toLowerCase();
+  if (mode === "supabase") return true;
+  if (mode === "file") return false;
+  return process.env.VERCEL === "1";
 }
 
 function safeReadJson(filePath) {
@@ -90,8 +101,8 @@ export function isOAuthConfigured() {
   return Boolean(getOAuthConfig());
 }
 
-export function hasStoredOAuthToken() {
-  const token = safeReadJson(resolveOAuthTokenPath());
+export async function hasStoredOAuthToken() {
+  const token = await readStoredOAuthToken();
   return Boolean(token?.refresh_token);
 }
 
@@ -106,13 +117,32 @@ function buildOAuthClient() {
   return new google.auth.OAuth2(config.clientId, config.clientSecret, config.redirectUri);
 }
 
-function readStoredOAuthToken() {
+async function readStoredOAuthToken() {
+  if (useSupabaseOAuthTokenStore()) {
+    return readGoogleOAuthTokenFromSupabase();
+  }
   return safeReadJson(resolveOAuthTokenPath());
 }
 
-function saveOAuthToken(tokens) {
+async function saveOAuthToken(tokens) {
+  if (useSupabaseOAuthTokenStore()) {
+    await saveGoogleOAuthTokenToSupabase(tokens);
+    return;
+  }
+
   const tokenPath = resolveOAuthTokenPath();
-  fs.writeFileSync(tokenPath, JSON.stringify(tokens, null, 2));
+  try {
+    fs.writeFileSync(tokenPath, JSON.stringify(tokens, null, 2));
+  } catch (error) {
+    if (error?.code === "EROFS") {
+      const readonlyError = new Error(
+        "Token OAuth no se pudo persistir en disco (filesystem read-only). Configura GOOGLE_OAUTH_TOKEN_STORE=supabase y crea la tabla oauth_tokens."
+      );
+      readonlyError.code = "OAUTH_TOKEN_STORE_READONLY";
+      throw readonlyError;
+    }
+    throw error;
+  }
 }
 
 export function getGoogleOAuthUrl() {
@@ -129,14 +159,14 @@ export function getGoogleOAuthUrl() {
 export async function completeGoogleOAuth(code) {
   const oauthClient = buildOAuthClient();
   const { tokens } = await oauthClient.getToken(code);
-  const existing = readStoredOAuthToken() || {};
+  const existing = (await readStoredOAuthToken()) || {};
   const merged = { ...existing, ...tokens };
 
   if (!merged.refresh_token) {
     throw new Error("OAuth token does not include refresh_token. Re-authorize with prompt=consent.");
   }
 
-  saveOAuthToken(merged);
+  await saveOAuthToken(merged);
   return merged;
 }
 
@@ -168,9 +198,9 @@ function buildServiceAccountAuth() {
   });
 }
 
-function buildOAuthAuthOrThrow() {
+async function buildOAuthAuthOrThrow() {
   const oauthClient = buildOAuthClient();
-  const token = readStoredOAuthToken();
+  const token = await readStoredOAuthToken();
 
   if (!token?.refresh_token) {
     const error = new Error("OAuth authorization required");
@@ -182,9 +212,9 @@ function buildOAuthAuthOrThrow() {
   return oauthClient;
 }
 
-function buildDriveClient() {
+async function buildDriveClient() {
   if (isOAuthConfigured()) {
-    return google.drive({ version: "v3", auth: buildOAuthAuthOrThrow() });
+    return google.drive({ version: "v3", auth: await buildOAuthAuthOrThrow() });
   }
 
   return google.drive({ version: "v3", auth: buildServiceAccountAuth() });
@@ -259,7 +289,7 @@ async function resolveFolderByFecha({ drive, rootFolderId, fecha }) {
 
 export async function uploadPdfToDrive({ fileName, pdfBuffer, fields = {} }) {
   const rootFolderId = requiredEnv("GOOGLE_DRIVE_FOLDER_ID");
-  const drive = buildDriveClient();
+  const drive = await buildDriveClient();
   const folder = await resolveFolderByFecha({
     drive,
     rootFolderId,

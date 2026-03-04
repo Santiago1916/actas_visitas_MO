@@ -1,6 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 
 let cachedClient = null;
+const OAUTH_TOKEN_TABLE = process.env.GOOGLE_OAUTH_TOKEN_TABLE || "oauth_tokens";
+const OAUTH_TOKEN_KEY = process.env.GOOGLE_OAUTH_TOKEN_KEY || "google_drive_oauth";
 
 function requiredEnv(name) {
   const value = process.env[name];
@@ -59,6 +61,56 @@ function numberOrNull(value, decimals = null) {
   if (!Number.isFinite(num)) return null;
   if (typeof decimals === "number") return Number(num.toFixed(decimals));
   return num;
+}
+
+function normalizeTokenObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value;
+}
+
+export async function readGoogleOAuthTokenFromSupabase() {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from(OAUTH_TOKEN_TABLE)
+    .select("token_json")
+    .eq("token_key", OAUTH_TOKEN_KEY)
+    .maybeSingle();
+
+  if (error) {
+    const dbError = new Error(`Supabase oauth token read failed: ${error.message}`);
+    dbError.code = "SUPABASE_OAUTH_TOKEN_READ_FAILED";
+    dbError.details = error;
+    throw dbError;
+  }
+
+  return normalizeTokenObject(data?.token_json);
+}
+
+export async function saveGoogleOAuthTokenToSupabase(tokens) {
+  const tokenPayload = normalizeTokenObject(tokens);
+  if (!tokenPayload) {
+    const invalidError = new Error("OAuth token payload is invalid.");
+    invalidError.code = "OAUTH_TOKEN_INVALID_PAYLOAD";
+    throw invalidError;
+  }
+
+  const supabase = getSupabaseClient();
+  const payload = {
+    token_key: OAUTH_TOKEN_KEY,
+    token_json: tokenPayload,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase
+    .from(OAUTH_TOKEN_TABLE)
+    .upsert(payload, { onConflict: "token_key" });
+
+  if (error) {
+    const dbError = new Error(`Supabase oauth token save failed: ${error.message}`);
+    dbError.code = "SUPABASE_OAUTH_TOKEN_SAVE_FAILED";
+    dbError.details = error;
+    throw dbError;
+  }
 }
 
 export async function insertActaVisitRecord({

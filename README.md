@@ -16,6 +16,7 @@ Proyecto full-stack para diligenciar actas de visita con firma digital y envio a
 - `frontend/`: interfaz en Next.js con tema claro/oscuro y estilo liquid glass
 - `backend/`: API de carga a Drive y flujo OAuth2
 - `backend/sql_actas_visita.sql`: script de tabla e indices en PostgreSQL
+- `backend/sql_oauth_tokens.sql`: tabla para persistir token OAuth en entornos serverless
 
 ## 1) Configurar backend (OAuth2)
 
@@ -35,6 +36,9 @@ GOOGLE_DRIVE_FOLDER_ID=1SPvmVk514IIZXp13b0-QskDOqoyfZI7B
 GOOGLE_OAUTH_CLIENT_ID=TU_CLIENT_ID.apps.googleusercontent.com
 GOOGLE_OAUTH_CLIENT_SECRET=TU_CLIENT_SECRET
 GOOGLE_OAUTH_REDIRECT_URI=http://localhost:8080/api/auth/google/callback
+GOOGLE_OAUTH_TOKEN_STORE=supabase
+GOOGLE_OAUTH_TOKEN_TABLE=oauth_tokens
+GOOGLE_OAUTH_TOKEN_KEY=google_drive_oauth
 SUPABASE_PROJECT_ID=ogzyikarmzoknjzidlut
 SUPABASE_SECRET_KEY=TU_SUPABASE_SECRET_KEY
 ```
@@ -44,6 +48,7 @@ SUPABASE_SECRET_KEY=TU_SUPABASE_SECRET_KEY
 1. Abre el SQL Editor de Supabase para tu proyecto.
 2. Ejecuta el contenido de:
    - `backend/sql_actas_visita.sql`
+   - `backend/sql_oauth_tokens.sql`
    - Si ya tienes la tabla creada: `backend/sql_migration_add_compromisos_observaciones.sql`
 
 Esto crea la tabla `public.actas_visita`, indices y trigger de `updated_at`.
