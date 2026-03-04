@@ -290,10 +290,23 @@ app.get("/api/audit", (req, res) => {
   });
 });
 
-app.get("/api/auth/google/status", (_req, res) => {
+app.get("/api/auth/google/status", async (_req, res) => {
+  let oauthAuthorized = false;
+  let tokenStoreError = null;
+
+  try {
+    oauthAuthorized = await hasStoredOAuthToken();
+  } catch (error) {
+    tokenStoreError = error?.message || "No se pudo validar el token OAuth almacenado.";
+    logStructured("warn", "oauth.status_token_check_failed", {
+      error: tokenStoreError,
+    });
+  }
+
   res.json({
     oauthConfigured: isOAuthConfigured(),
-    oauthAuthorized: hasStoredOAuthToken(),
+    oauthAuthorized,
+    tokenStoreError,
   });
 });
 
@@ -538,6 +551,28 @@ app.post("/api/drive/upload-pdf", async (req, res) => {
         message: "Google OAuth2 no autorizado.",
         details: "Abre /api/auth/google/connect para autorizar la cuenta de Google una sola vez.",
         authUrl: isOAuthConfigured() ? getGoogleOAuthUrl() : null,
+        requestId,
+        idempotencyKey,
+        actaCode,
+      });
+    }
+
+    if (
+      error?.code === "OAUTH_TOKEN_STORE_READONLY" ||
+      error?.code === "SUPABASE_OAUTH_TOKEN_READ_FAILED" ||
+      error?.code === "SUPABASE_OAUTH_TOKEN_SAVE_FAILED"
+    ) {
+      logStructured("error", "upload.oauth_token_store_failed", {
+        requestId,
+        idempotencyKey,
+        actaCode,
+        error: error?.message || "OAuth token store failed",
+      });
+
+      return sendApiError(res, 500, {
+        code: "OAUTH_TOKEN_STORE_FAILED",
+        message: "No se pudo leer/guardar el token OAuth en el backend.",
+        details: error?.message || "OAuth token store failed",
         requestId,
         idempotencyKey,
         actaCode,
