@@ -4,7 +4,7 @@ import SignaturePad from "signature_pad";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
 function resizeCanvas(canvas, signaturePad) {
-  const ratio = Math.max(window.devicePixelRatio || 1, 1);
+  const ratio = Math.min(Math.max(window.devicePixelRatio || 1, 1), 1.5);
   const width = Math.max(canvas.offsetWidth, 320);
   const height = Math.max(canvas.offsetHeight, 180);
   const data = signaturePad.toData();
