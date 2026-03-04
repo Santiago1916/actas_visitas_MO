@@ -1,0 +1,42 @@
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Dependencies
+**/node_modules/
+
+# Build outputs / caches
+**/.next/
+**/.next*/
+**/out/
+**/dist/
+**/coverage/
+**/.turbo/
+**/.cache/
+
+# Environment files
+# Keep only templates (*.example) in git.
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+
+**/env
+**/env.*
+!**/env.example
+!**/env.*.example
+
+# Credentials / tokens
+**/oauth-token.json
+**/service-account.json
+**/*service-account*.json
+**/*.pem
+**/*.key

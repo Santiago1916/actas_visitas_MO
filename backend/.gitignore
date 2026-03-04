@@ -1,0 +1,15 @@
+node_modules
+.env
+.env.*
+!.env.example
+!.env.*.example
+env
+env.*
+!env.example
+!env.*.example
+service-account.json
+*service-account*.json
+oauth-token.json
+*.pem
+*.key
+.DS_Store

@@ -1,0 +1,632 @@
+@import "react-day-picker/style.css";
+
+:root {
+  --bg: #edf2ff;
+  --bg-elevated: #f8faff;
+  --text: #102348;
+  --muted: #5b6f92;
+  --glass-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.28));
+  --glass-border: rgba(255, 255, 255, 0.75);
+  --glass-shadow: 0 18px 40px rgba(31, 37, 93, 0.15);
+  --input-bg: rgba(255, 255, 255, 0.66);
+  --input-border: rgba(120, 143, 192, 0.62);
+  --focus: #35bfed;
+  --brand: #2b1b80;
+  --brand-strong: #1f1363;
+  --accent: #e93d57;
+  --signature-bg: rgba(18, 27, 58, 0.86);
+  --signature-ink: #f8fcff;
+}
+
+html[data-theme="dark"] {
+  --bg: #090e20;
+  --bg-elevated: #111a36;
+  --text: #edf3ff;
+  --muted: #a7bbdb;
+  --glass-bg: linear-gradient(145deg, rgba(37, 48, 86, 0.58), rgba(11, 18, 38, 0.52));
+  --glass-border: rgba(162, 177, 232, 0.33);
+  --glass-shadow: 0 20px 48px rgba(0, 0, 0, 0.52);
+  --input-bg: rgba(8, 17, 31, 0.45);
+  --input-border: rgba(114, 141, 201, 0.58);
+  --focus: #68d1ff;
+  --brand: #7d8ff8;
+  --brand-strong: #5f73dd;
+  --accent: #ff687d;
+  --signature-bg: rgba(6, 12, 24, 0.88);
+  --signature-ink: #f6fbff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--font-body), "Segoe UI", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 8% 0%, rgba(53, 191, 237, 0.16), transparent 30%),
+    radial-gradient(circle at 92% 8%, rgba(233, 61, 87, 0.12), transparent 26%),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-elevated) 38%, var(--bg) 62%), var(--bg));
+}
+
+.shell {
+  position: relative;
+  min-height: 100vh;
+  padding: 2rem 1.2rem 2.4rem;
+}
+
+.document-surface {
+  position: relative;
+  z-index: 2;
+  isolation: isolate;
+  max-width: 1060px;
+  margin: 0 auto;
+  display: grid;
+  gap: 1rem;
+}
+
+.glass-card {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.2rem;
+  gap: 1rem;
+  position: relative;
+  z-index: 40;
+}
+
+.brand-wrap {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.brand-mark {
+  width: clamp(150px, 25vw, 220px);
+  height: auto;
+  display: block;
+  filter: drop-shadow(0 10px 18px rgba(28, 21, 89, 0.22));
+}
+
+.kicker {
+  margin: 0;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+
+h1 {
+  margin: 0.2rem 0 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(1.2rem, 2.1vw, 1.5rem);
+  color: color-mix(in srgb, var(--brand) 80%, var(--text) 20%);
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  position: relative;
+  z-index: 50;
+}
+
+.form-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.form-shell {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-inline-size: 0;
+  display: grid;
+  gap: 1rem;
+}
+
+.panel {
+  padding: 1rem;
+  display: grid;
+  gap: 0.95rem;
+}
+
+.two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.full-span {
+  grid-column: 1 / -1;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.48rem;
+  font-size: 0.93rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.field-date {
+  min-width: 190px;
+}
+
+.topbar-control {
+  display: grid;
+  gap: 0.36rem;
+  min-width: 0;
+}
+
+.calendar-field {
+  position: relative;
+}
+
+.alarm-time-field {
+  position: relative;
+}
+
+.alarm-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.6rem;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text);
+  padding: 0.64rem 0.72rem;
+  border-radius: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.alarm-display-placeholder {
+  color: color-mix(in srgb, var(--muted) 82%, var(--text) 18%);
+  font-weight: 600;
+}
+
+.alarm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  background: rgba(3, 8, 22, 0.45);
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.alarm-modal {
+  position: fixed;
+  inset: auto 0.55rem 2.25rem 0.55rem;
+  z-index: 1600;
+  border-radius: 20px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  box-shadow: 0 16px 34px rgba(5, 11, 30, 0.32);
+  padding: 1rem 1rem 1.1rem;
+}
+
+.alarm-modal-header h3 {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 800;
+  color: color-mix(in srgb, var(--brand) 75%, var(--text) 25%);
+}
+
+.alarm-modal-header p {
+  margin: 0.24rem 0 0.8rem;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.alarm-picker-wrap {
+  border: 1px solid var(--input-border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--input-bg) 92%, transparent);
+  padding: 0.35rem 0.2rem;
+}
+
+.alarm-picker-wrap > div {
+  gap: 0.25rem;
+}
+
+.alarm-option {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: color-mix(in srgb, var(--muted) 85%, var(--text) 15%);
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.alarm-option.is-selected {
+  color: color-mix(in srgb, var(--brand) 82%, var(--text) 18%);
+  font-weight: 800;
+  font-size: 1.15rem;
+}
+
+.alarm-modal-actions {
+  margin-top: 0.86rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.calendar-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.6rem;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text);
+  padding: 0.64rem 0.72rem;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.calendar-popover {
+  position: absolute;
+  z-index: 1400;
+  top: calc(100% + 0.55rem);
+  left: 0;
+  padding: 0.85rem;
+  width: min(100vw - 2.2rem, 334px);
+  border-radius: 16px;
+}
+
+.modern-daypicker {
+  --rdp-accent-color: var(--brand);
+  --rdp-accent-background-color: color-mix(in srgb, var(--brand) 18%, transparent);
+  --rdp-day_button-width: 38px;
+  --rdp-day_button-height: 38px;
+  --rdp-day-height: 40px;
+  --rdp-day-width: 40px;
+  --rdp-disabled-opacity: 0.4;
+  margin: 0;
+  color: var(--text);
+}
+
+.modern-daypicker .rdp-caption_label {
+  font-size: 0.94rem;
+  font-weight: 700;
+}
+
+.modern-daypicker .rdp-weekday {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.modern-daypicker .rdp-day_button {
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+
+.modern-daypicker .rdp-day_button:hover {
+  border-color: color-mix(in srgb, var(--focus) 60%, transparent);
+  background: color-mix(in srgb, var(--focus) 12%, transparent);
+}
+
+.modern-daypicker .rdp-selected .rdp-day_button {
+  background: linear-gradient(120deg, var(--brand), var(--brand-strong));
+  color: #fff;
+}
+
+.whatsapp-support {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.46rem;
+  margin-left: auto;
+  text-decoration: none;
+  border: 1px solid color-mix(in srgb, #22c55e 48%, transparent);
+  background: color-mix(in srgb, #22c55e 18%, var(--input-bg) 82%);
+  color: color-mix(in srgb, #16a34a 86%, var(--text) 14%);
+  padding: 0.62rem 0.88rem;
+  border-radius: 12px;
+  font-weight: 700;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.whatsapp-support svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  display: block;
+  flex-shrink: 0;
+  stroke: currentColor;
+}
+
+.whatsapp-support-icon {
+  width: 1.12rem !important;
+  height: 1.12rem !important;
+  display: block;
+  flex-shrink: 0;
+}
+
+.whatsapp-support:hover {
+  transform: translateY(-1px);
+  border-color: #22c55e;
+}
+
+.whatsapp-support.is-disabled {
+  pointer-events: none;
+  opacity: 0.62;
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+}
+
+input,
+textarea,
+select {
+  width: 100%;
+  color: var(--text);
+  border-radius: 12px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  padding: 0.65rem 0.72rem;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: color-mix(in srgb, var(--muted) 78%, transparent);
+}
+
+input:focus,
+textarea:focus {
+  outline: 2px solid color-mix(in srgb, var(--focus) 62%, transparent);
+  outline-offset: 1px;
+  border-color: var(--focus);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 110px;
+}
+
+@media (min-width: 760px) {
+  .alarm-modal {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: min(440px, calc(100vw - 2rem));
+    border-radius: 20px;
+    bottom: 3rem;
+  }
+}
+
+.signature-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.signature-panel h3 {
+  margin: 0 0 0.66rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.signature-pad {
+  width: 100%;
+  height: 230px;
+  display: block;
+  border-radius: 14px;
+  border: 1px dashed color-mix(in srgb, var(--focus) 70%, #1d3e68 30%);
+  background: var(--signature-bg);
+  touch-action: none;
+}
+
+.actions {
+  display: flex;
+  gap: 0.72rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 0.3rem 0.2rem;
+}
+
+.send-status {
+  margin: 0 auto 0 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--brand) 70%, var(--text) 30%);
+}
+
+button {
+  border: 1px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+  transform: none;
+}
+
+.solid,
+.accent,
+.theme-toggle,
+.ghost {
+  padding: 0.62rem 0.95rem;
+}
+
+.solid {
+  color: #ffffff;
+  background: linear-gradient(120deg, var(--brand), var(--brand-strong));
+}
+
+.accent {
+  color: #ffffff;
+  background: linear-gradient(120deg, var(--accent), #ff6f8e);
+}
+
+.ghost,
+.theme-toggle {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--input-border) 70%, transparent);
+  background: color-mix(in srgb, var(--input-bg) 90%, transparent);
+}
+
+.theme-toggle {
+  white-space: nowrap;
+}
+
+.calendar-trigger,
+.theme-toggle,
+.whatsapp-support {
+  min-height: 44px;
+}
+
+.error {
+  margin: 0;
+  color: #ff4f6d;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.sileo-title-lg {
+  font-size: 1rem !important;
+  line-height: 1.2rem !important;
+  font-weight: 700 !important;
+}
+
+.sileo-desc-lg {
+  font-size: 0.94rem !important;
+  line-height: 1.25rem !important;
+}
+
+.sileo-btn-lg {
+  font-size: 0.9rem !important;
+  font-weight: 700 !important;
+}
+
+@media (max-width: 920px) {
+  .topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .topbar-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+    justify-content: stretch;
+    gap: 0.55rem;
+  }
+
+  .topbar-control {
+    grid-column: 1 / -1;
+  }
+
+  .field-date {
+    min-width: 0;
+  }
+
+  .topbar-actions > * {
+    width: 100%;
+  }
+
+  .calendar-trigger,
+  .theme-toggle,
+  .whatsapp-support {
+    width: 100%;
+    min-height: 46px;
+  }
+
+  .calendar-trigger {
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  .theme-toggle,
+  .whatsapp-support {
+    justify-content: center;
+    text-align: center;
+    padding-inline: 0.72rem;
+    font-size: 0.95rem;
+  }
+
+  .whatsapp-support span {
+    white-space: nowrap;
+  }
+
+  .whatsapp-support {
+    margin-left: 0;
+  }
+
+  .two-col,
+  .signature-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .actions {
+    justify-content: stretch;
+  }
+
+  .actions button {
+    width: 100%;
+  }
+}
+
+@media print {
+  body {
+    background: #ffffff;
+    color: #111111;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .shell {
+    padding: 0;
+  }
+
+  .glass-card {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: #ffffff;
+    border: 1px solid #c6c6c6;
+    box-shadow: none;
+  }
+
+  .signature-pad {
+    background: #ffffff;
+    border: 1px dashed #7c7c7c;
+  }
+}
