@@ -11,6 +11,7 @@ import AlarmTimeField from "../components/AlarmTimeField";
 const STORAGE_KEY = "actaVisitaDraft.v4.next";
 const THEME_KEY = "actaVisitaTheme.v1";
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
+const MAX_VERCEL_FUNCTION_PAYLOAD_BYTES = 4_300_000;
 const SUPPORT_PHONE = "573022509856";
 const SUPPORT_TEXT = "tengo problema con el acta de visitas mundo ocupacional";
 const SUPPORT_WA_URL = `https://wa.me/${SUPPORT_PHONE}?text=${encodeURIComponent(SUPPORT_TEXT)}`;
@@ -101,6 +102,13 @@ function buildGoogleMapsUrl(lat, lng) {
   return `https://www.google.com/maps?q=${lat},${lng}`;
 }
 
+function base64ToBytes(base64 = "") {
+  const clean = String(base64).replace(/\s/g, "");
+  if (!clean) return 0;
+  const padding = clean.endsWith("==") ? 2 : clean.endsWith("=") ? 1 : 0;
+  return Math.floor((clean.length * 3) / 4) - padding;
+}
+
 function requestBrowserLocation() {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
@@ -139,6 +147,42 @@ async function getLogoDataUrl() {
   });
 
   return logoDataUrlPromise;
+}
+
+async function optimizeSignatureDataUrl(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== "string") return "";
+  if (typeof window === "undefined") return dataUrl;
+
+  try {
+    const optimized = await new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        const maxWidth = 900;
+        const maxHeight = 260;
+        const scale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight, 1);
+        const width = Math.max(1, Math.round(image.naturalWidth * scale));
+        const height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(image, 0, 0, width, height);
+
+        resolve(canvas.toDataURL("image/png"));
+      };
+      image.onerror = () => reject(new Error("No se pudo optimizar la firma."));
+      image.src = dataUrl;
+    });
+
+    if (typeof optimized === "string" && optimized.length > 0 && optimized.length < dataUrl.length) {
+      return optimized;
+    }
+    return dataUrl;
+  } catch {
+    return dataUrl;
+  }
 }
 
 function buildFieldErrors(issues = []) {
@@ -414,7 +458,7 @@ export default function Page() {
 
   async function buildPdfBase64(locationData) {
     const { jsPDF } = await import("jspdf");
-    const doc = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
+    const doc = new jsPDF({ orientation: "p", unit: "mm", format: "a4", compress: true });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const margin = 14;
@@ -530,8 +574,12 @@ export default function Page() {
     drawTextSection("Compromisos", formData.compromisos, 5);
     drawTextSection("Observaciones", formData.observaciones, 5);
 
-    const asesorSignature = asesorRef.current?.toDataURL() || "";
-    const responsableSignature = responsableRef.current?.toDataURL() || "";
+    const asesorSignatureRaw = asesorRef.current?.toDataURL() || "";
+    const responsableSignatureRaw = responsableRef.current?.toDataURL() || "";
+    const [asesorSignature, responsableSignature] = await Promise.all([
+      optimizeSignatureDataUrl(asesorSignatureRaw),
+      optimizeSignatureDataUrl(responsableSignatureRaw),
+    ]);
     const signatureBoxHeight = 50;
     ensureSpace(signatureBoxHeight + 6);
 
@@ -609,6 +657,12 @@ export default function Page() {
 
       setSendStep("generating");
       const pdfBase64 = await buildPdfBase64(capturedLocation);
+      const pdfBytes = base64ToBytes(pdfBase64);
+      if (pdfBytes > MAX_VERCEL_FUNCTION_PAYLOAD_BYTES) {
+        throw new Error(
+          "El PDF es tuvo un fallo contacta con soporte."
+        );
+      }
 
       setSendStep("uploading");
       const response = await fetch(`${API_BASE}/api/drive/upload-pdf`, {
