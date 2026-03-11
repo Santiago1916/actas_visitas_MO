@@ -65,24 +65,38 @@ export default function AlarmTimeField({
   value,
   disabled = false,
   error = "",
+  required = false,
   onChange,
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [pickerValue, setPickerValue] = useState(parseToPickerValue(value));
 
   useEffect(() => {
     setIsMounted(true);
+    const coarsePointer = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
+    const hasTouchPoints = (navigator.maxTouchPoints || 0) > 0;
+    setIsTouchDevice(coarsePointer || hasTouchPoints);
   }, []);
 
   useEffect(() => {
-    if (!isOpen) return undefined;
-    const previousOverflow = document.body.style.overflow;
+    if (!isOpen || isTouchDevice) return undefined;
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
     document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = previousOverflow;
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
     };
-  }, [isOpen]);
+  }, [isOpen, isTouchDevice]);
+
+  useEffect(() => {
+    if (isTouchDevice && isOpen) {
+      setIsOpen(false);
+    }
+  }, [isTouchDevice, isOpen]);
 
   function handleOpen() {
     if (disabled) return;
@@ -99,8 +113,12 @@ export default function AlarmTimeField({
     setIsOpen(false);
   }
 
+  function handleNativeInputChange(event) {
+    onChange?.(name, event.target.value);
+  }
+
   const modalContent =
-    isOpen && isMounted
+    !isTouchDevice && isOpen && isMounted
       ? createPortal(
           <>
             <button
@@ -168,18 +186,39 @@ export default function AlarmTimeField({
 
   return (
     <div className="field alarm-time-field">
-      {label}
+      <label id={`${id}-label`} htmlFor={id} className="alarm-time-label">
+        {label}
+        {required ? (
+          <span className="required-indicator" aria-hidden="true">
+            *
+          </span>
+        ) : null}
+      </label>
 
-      <button
-        type="button"
-        id={id}
-        className="alarm-trigger"
-        onClick={handleOpen}
-        disabled={disabled}
-        aria-label={`Seleccionar ${label}`}
-      >
-        <span className={isEmpty ? "alarm-display-placeholder" : ""}>{formatDisplay(value)}</span>
-      </button>
+      {isTouchDevice ? (
+        <input
+          id={id}
+          name={name}
+          type="time"
+          value={value}
+          onChange={handleNativeInputChange}
+          disabled={disabled}
+          required={required}
+          step="60"
+        />
+      ) : (
+        <button
+          type="button"
+          id={id}
+          className="alarm-trigger"
+          onClick={handleOpen}
+          disabled={disabled}
+          aria-label={`Seleccionar ${label}`}
+          aria-labelledby={`${id}-label`}
+        >
+          <span className={isEmpty ? "alarm-display-placeholder" : ""}>{formatDisplay(value)}</span>
+        </button>
+      )}
 
       {error ? <p className="error">{error}</p> : null}
 

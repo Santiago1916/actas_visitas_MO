@@ -3,6 +3,7 @@ import { z } from "zod";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const IDEMPOTENCY_RE = /^[a-zA-Z0-9._:-]{8,120}$/;
+const SIMPLE_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const requiredText = (fieldName, max = 500) =>
   z
@@ -26,15 +27,22 @@ const fieldsSchema = z
       .regex(TIME_RE, "La hora de fin debe tener formato HH:mm."),
     contacto: requiredText("El contacto", 180),
     telefono: z
-      .string({ required_error: "El telefono es obligatorio." })
+      .string()
       .trim()
-      .min(7, "El telefono debe tener al menos 7 caracteres.")
-      .max(30, "El telefono supera el maximo permitido (30)."),
-    email: z.string({ required_error: "El email es obligatorio." }).trim().email("El email no es valido."),
+      .max(30, "El telefono supera el maximo permitido (30).")
+      .refine(
+        (value) => value.length === 0 || value.length >= 7,
+        "El telefono debe tener al menos 7 caracteres."
+      ),
+    email: z
+      .string()
+      .trim()
+      .max(180, "El email supera el maximo permitido (180).")
+      .refine((value) => value.length === 0 || SIMPLE_EMAIL_RE.test(value), "El email no es valido."),
     participantes: requiredText("Participantes", 2000),
     temasTratados: requiredText("Temas tratados", 6000),
-    compromisos: requiredText("Compromisos", 4000),
-    observaciones: requiredText("Observaciones", 4000),
+    compromisos: z.string().trim().max(4000, "Compromisos supera el maximo permitido (4000)."),
+    observaciones: z.string().trim().max(4000, "Observaciones supera el maximo permitido (4000)."),
   })
   .superRefine((value, ctx) => {
     if (value.horaFin < value.horaInicio) {

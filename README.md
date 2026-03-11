@@ -117,7 +117,7 @@ Debe mostrar:
 - Firma digital para asesor SST y responsable
 - Captura de ubicacion al enviar PDF (con reintento de permiso si el usuario cancela)
 - Guardar borrador en `localStorage`
-- Imprimir / Guardar PDF
+- Guardar PDF
 - PDF generado con texto seleccionable
 - PDF con latitud/longitud y enlace a Google Maps
 - Enviar PDF a Google Drive con un click

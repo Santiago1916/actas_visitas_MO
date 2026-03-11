@@ -165,6 +165,32 @@ h1 {
   color: var(--text);
 }
 
+.field-label,
+.alarm-time-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.36rem;
+  line-height: 1.22;
+}
+
+.required-note {
+  margin: 0;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.required-indicator {
+  color: #ff4f6d;
+  font-weight: 800;
+}
+
+.optional-indicator {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
 .field-date {
   min-width: 190px;
 }
@@ -197,6 +223,7 @@ h1 {
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   letter-spacing: 0.02em;
+  touch-action: manipulation;
 }
 
 .alarm-display-placeholder {
@@ -225,6 +252,7 @@ h1 {
   -webkit-backdrop-filter: blur(18px) saturate(1.25);
   box-shadow: 0 16px 34px rgba(5, 11, 30, 0.32);
   padding: 1rem 1rem 1.1rem;
+  overscroll-behavior: contain;
 }
 
 .alarm-modal-header h3 {
@@ -245,6 +273,8 @@ h1 {
   border-radius: 16px;
   background: color-mix(in srgb, var(--input-bg) 92%, transparent);
   padding: 0.35rem 0.2rem;
+  touch-action: none;
+  overscroll-behavior: contain;
 }
 
 .alarm-picker-wrap > div {
