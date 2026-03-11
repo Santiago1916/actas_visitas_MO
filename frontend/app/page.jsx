@@ -18,6 +18,16 @@ const SUPPORT_WA_URL = `https://wa.me/${SUPPORT_PHONE}?text=${encodeURIComponent
 const SIMPLE_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BOGOTA_TIMEZONE = "America/Bogota";
 const CALENDAR_MONTHS_BACK_LIMIT = 5;
+const GEOLOCATION_PRECISE_OPTIONS = Object.freeze({
+  enableHighAccuracy: true,
+  timeout: 12000,
+  maximumAge: 0,
+});
+const GEOLOCATION_FALLBACK_OPTIONS = Object.freeze({
+  enableHighAccuracy: false,
+  timeout: 10000,
+  maximumAge: 5 * 60 * 1000,
+});
 
 const SEND_STEPS = {
   idle: "",
@@ -187,21 +197,22 @@ function downloadPdfFromBase64(pdfBase64, preferredName = "acta-visita.pdf") {
   URL.revokeObjectURL(objectUrl);
 }
 
-function requestBrowserLocation() {
+function requestBrowserLocation(options = GEOLOCATION_PRECISE_OPTIONS) {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
       reject(new Error("Este navegador no soporta geolocalizacion."));
       return;
     }
 
+    if (typeof window !== "undefined" && window.isSecureContext === false) {
+      reject(new Error("La geolocalizacion requiere HTTPS o localhost."));
+      return;
+    }
+
     navigator.geolocation.getCurrentPosition(
       (position) => resolve(position),
       (error) => reject(error),
-      {
-        enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 0,
-      }
+      options
     );
   });
 }
@@ -527,8 +538,26 @@ export default function Page() {
     });
 
     const tryCapture = async () => {
-      const position = await requestBrowserLocation();
-      return mapPosition(position);
+      try {
+        const precisePosition = await requestBrowserLocation(GEOLOCATION_PRECISE_OPTIONS);
+        return mapPosition(precisePosition);
+      } catch (error) {
+        if (error?.code === 1) {
+          throw error;
+        }
+
+        if (error?.code === 2 || error?.code === 3) {
+          sileo.info({
+            title: "Reintentando ubicacion",
+            description: "El GPS tardo mas de lo esperado. Intentando con una ubicacion aproximada del dispositivo.",
+          });
+
+          const fallbackPosition = await requestBrowserLocation(GEOLOCATION_FALLBACK_OPTIONS);
+          return mapPosition(fallbackPosition);
+        }
+
+        throw error;
+      }
     };
 
     try {
@@ -552,7 +581,7 @@ export default function Page() {
         throw new Error("No se pudo determinar la ubicacion actual.");
       }
       if (error?.code === 3) {
-        throw new Error("Tiempo agotado al solicitar ubicacion.");
+        throw new Error("Tiempo agotado al solicitar ubicacion. Intenta activar GPS, datos moviles o Wi-Fi y vuelve a intentarlo.");
       }
       throw new Error(error?.message || "Error obteniendo la ubicacion.");
     }
