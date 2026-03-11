@@ -15,6 +15,7 @@ const MAX_VERCEL_FUNCTION_PAYLOAD_BYTES = 4_300_000;
 const SUPPORT_PHONE = "573022509856";
 const SUPPORT_TEXT = "tengo problema con el acta de visitas mundo ocupacional";
 const SUPPORT_WA_URL = `https://wa.me/${SUPPORT_PHONE}?text=${encodeURIComponent(SUPPORT_TEXT)}`;
+const SIMPLE_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const SEND_STEPS = {
   idle: "",
@@ -32,12 +33,20 @@ const formSchema = z
     horaInicio: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Hora inicio invalida."),
     horaFin: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Hora fin invalida."),
     contacto: z.string().trim().min(1, "Ingresa el contacto de la empresa.").max(180, "Contacto demasiado largo."),
-    telefono: z.string().trim().min(7, "Telefono invalido.").max(30, "Telefono demasiado largo."),
-    email: z.string().trim().email("Email invalido."),
+    telefono: z
+      .string()
+      .trim()
+      .max(30, "Telefono demasiado largo.")
+      .refine((value) => value.length === 0 || value.length >= 7, "Telefono invalido."),
+    email: z
+      .string()
+      .trim()
+      .max(180, "Email demasiado largo.")
+      .refine((value) => value.length === 0 || SIMPLE_EMAIL_RE.test(value), "Email invalido."),
     participantes: z.string().trim().min(3, "Ingresa los participantes.").max(2000, "Texto demasiado largo."),
     temasTratados: z.string().trim().min(5, "Ingresa los temas tratados.").max(6000, "Texto demasiado largo."),
-    compromisos: z.string().trim().min(3, "Ingresa los compromisos.").max(4000, "Texto demasiado largo."),
-    observaciones: z.string().trim().min(3, "Ingresa las observaciones.").max(4000, "Texto demasiado largo."),
+    compromisos: z.string().trim().max(4000, "Texto demasiado largo."),
+    observaciones: z.string().trim().max(4000, "Texto demasiado largo."),
   })
   .superRefine((value, ctx) => {
     if (value.horaFin < value.horaInicio) {
@@ -107,6 +116,30 @@ function base64ToBytes(base64 = "") {
   if (!clean) return 0;
   const padding = clean.endsWith("==") ? 2 : clean.endsWith("=") ? 1 : 0;
   return Math.floor((clean.length * 3) / 4) - padding;
+}
+
+function downloadPdfFromBase64(pdfBase64, preferredName = "acta-visita.pdf") {
+  if (!pdfBase64 || typeof window === "undefined") return;
+
+  const cleanBase64 = String(pdfBase64).replace(/\s/g, "");
+  const fileName = String(preferredName || "acta-visita.pdf").trim() || "acta-visita.pdf";
+  const normalizedFileName = fileName.toLowerCase().endsWith(".pdf") ? fileName : `${fileName}.pdf`;
+
+  const binary = window.atob(cleanBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  const blob = new Blob([bytes], { type: "application/pdf" });
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = normalizedFileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
 }
 
 function requestBrowserLocation() {
@@ -623,18 +656,7 @@ export default function Page() {
     return dataUri.includes(",") ? dataUri.split(",")[1] : dataUri;
   }
 
-  function handlePrint() {
-    if (isSending) return;
-    if (!validateFormDataWithSchema()) return;
-    if (!validateSignatures()) return;
-    window.print();
-  }
-
-  async function handleSendToDrive() {
-    if (isSending) return;
-    if (!validateFormDataWithSchema()) return;
-    if (!validateSignatures()) return;
-
+  async function uploadActaToDrive() {
     const firmaAsesor = asesorRef.current?.toDataURL() || "";
     const firmaResponsable = responsableRef.current?.toDataURL() || "";
 
@@ -695,7 +717,7 @@ export default function Page() {
               description: "Habilita pop-ups para completar la autorizacion de Google.",
             });
           }
-          return;
+          return null;
         }
 
         if (payload?.error?.code === "REQUEST_IN_PROGRESS") {
@@ -703,7 +725,7 @@ export default function Page() {
             title: "Solicitud en proceso",
             description: resolveApiErrorMessage(payload, "La solicitud ya se esta procesando."),
           });
-          return;
+          return null;
         }
 
         throw new Error(resolveApiErrorMessage(payload, "No se pudo enviar a Drive."));
@@ -730,15 +752,36 @@ export default function Page() {
         title: "Acta subida a la nube",
         description: `Acta ${fileName} subida a la nube.`,
       });
+
+      return {
+        pdfBase64,
+        fileName,
+      };
     } catch (error) {
       sileo.error({
         title: "Error al enviar",
         description: error?.message || "No se pudo enviar a Drive.",
       });
+      return null;
     } finally {
       setIsSending(false);
       setSendStep("idle");
     }
+  }
+
+  async function handlePrint() {
+    if (isSending) return;
+    if (!validateFormDataWithSchema()) return;
+    if (!validateSignatures()) return;
+
+    const uploadResult = await uploadActaToDrive();
+    if (!uploadResult?.pdfBase64) return;
+
+    downloadPdfFromBase64(uploadResult.pdfBase64, uploadResult.fileName || "acta-visita.pdf");
+    sileo.success({
+      title: "Descarga iniciada",
+      description: "El PDF se envio a Drive y ahora se esta descargando en este dispositivo.",
+    });
   }
 
   return (
@@ -826,9 +869,21 @@ export default function Page() {
 
         <form className="form-grid" noValidate>
           <fieldset className="form-shell" disabled={isSending}>
+            <p className="required-note">
+              <span className="required-indicator" aria-hidden="true">
+                *
+              </span>{" "}
+              Campos obligatorios
+            </p>
+
             <section className="glass-card panel two-col">
               <label className="field">
-                Nombre o razon social de la sede
+                <span className="field-label">
+                  Nombre o razon social de la sede
+                  <span className="required-indicator" aria-hidden="true">
+                    *
+                  </span>
+                </span>
                 <input
                   id="razonSocial"
                   name="razonSocial"
@@ -841,7 +896,12 @@ export default function Page() {
               </label>
 
               <label className="field">
-                Sede
+                <span className="field-label">
+                  Sede
+                  <span className="required-indicator" aria-hidden="true">
+                    *
+                  </span>
+                </span>
                 <input id="sede" name="sede" type="text" value={formData.sede} onChange={onFieldChange} required />
                 {errors.sede ? <p className="error">{errors.sede}</p> : null}
               </label>
@@ -855,6 +915,7 @@ export default function Page() {
                 value={formData.horaInicio}
                 onChange={onTimeFieldChange}
                 disabled={isSending}
+                required
                 error={errors.horaInicio}
               />
 
@@ -865,13 +926,19 @@ export default function Page() {
                 value={formData.horaFin}
                 onChange={onTimeFieldChange}
                 disabled={isSending}
+                required
                 error={errors.horaFin}
               />
             </section>
 
             <section className="glass-card panel two-col">
               <label className="field">
-                Contacto de la empresa
+                <span className="field-label">
+                  Contacto de la empresa
+                  <span className="required-indicator" aria-hidden="true">
+                    *
+                  </span>
+                </span>
                 <input
                   id="contacto"
                   name="contacto"
@@ -884,28 +951,38 @@ export default function Page() {
               </label>
 
               <label className="field">
-                Telefono
+                <span className="field-label">
+                  Telefono
+                  <span className="optional-indicator">(opcional)</span>
+                </span>
                 <input
                   id="telefono"
                   name="telefono"
                   type="tel"
                   value={formData.telefono}
                   onChange={onFieldChange}
-                  required
                 />
                 {errors.telefono ? <p className="error">{errors.telefono}</p> : null}
               </label>
 
               <label className="field full-span">
-                Email
-                <input id="email" name="email" type="email" value={formData.email} onChange={onFieldChange} required />
+                <span className="field-label">
+                  Email
+                  <span className="optional-indicator">(opcional)</span>
+                </span>
+                <input id="email" name="email" type="email" value={formData.email} onChange={onFieldChange} />
                 {errors.email ? <p className="error">{errors.email}</p> : null}
               </label>
             </section>
 
             <section className="glass-card panel">
               <label className="field">
-                Participantes
+                <span className="field-label">
+                  Participantes
+                  <span className="required-indicator" aria-hidden="true">
+                    *
+                  </span>
+                </span>
                 <textarea
                   id="participantes"
                   name="participantes"
@@ -921,7 +998,12 @@ export default function Page() {
 
             <section className="glass-card panel">
               <label className="field">
-                Temas tratados o actividades realizadas
+                <span className="field-label">
+                  Temas tratados o actividades realizadas
+                  <span className="required-indicator" aria-hidden="true">
+                    *
+                  </span>
+                </span>
                 <textarea
                   id="temasTratados"
                   name="temasTratados"
@@ -937,7 +1019,10 @@ export default function Page() {
 
             <section className="glass-card panel">
               <label className="field">
-                Compromisos
+                <span className="field-label">
+                  Compromisos
+                  <span className="optional-indicator">(opcional)</span>
+                </span>
                 <textarea
                   id="compromisos"
                   name="compromisos"
@@ -945,7 +1030,6 @@ export default function Page() {
                   placeholder="Acuerdos, responsables y fechas objetivo."
                   value={formData.compromisos}
                   onChange={onFieldChange}
-                  required
                 ></textarea>
                 {errors.compromisos ? <p className="error">{errors.compromisos}</p> : null}
               </label>
@@ -953,7 +1037,10 @@ export default function Page() {
 
             <section className="glass-card panel">
               <label className="field">
-                Observaciones
+                <span className="field-label">
+                  Observaciones
+                  <span className="optional-indicator">(opcional)</span>
+                </span>
                 <textarea
                   id="observaciones"
                   name="observaciones"
@@ -961,7 +1048,6 @@ export default function Page() {
                   placeholder="Observaciones adicionales de la visita."
                   value={formData.observaciones}
                   onChange={onFieldChange}
-                  required
                 ></textarea>
                 {errors.observaciones ? <p className="error">{errors.observaciones}</p> : null}
               </label>
@@ -993,10 +1079,7 @@ export default function Page() {
                 Restablecer
               </button>
               <button type="button" className="accent" onClick={handlePrint}>
-                Imprimir / Guardar PDF
-              </button>
-              <button type="button" className="accent" onClick={handleSendToDrive} disabled={isSending}>
-                {isSending ? sendStepLabel : "Enviar a Drive"}
+                Guardar PDF
               </button>
             </section>
           </fieldset>
