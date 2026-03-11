@@ -16,6 +16,12 @@
   --accent: #e93d57;
   --signature-bg: rgba(18, 27, 58, 0.86);
   --signature-ink: #f8fcff;
+  --calendar-glass-bg: linear-gradient(155deg, rgba(231, 239, 255, 0.94), rgba(210, 224, 248, 0.86));
+  --calendar-glass-border: rgba(93, 118, 174, 0.45);
+  --calendar-glass-shadow: 0 22px 46px rgba(18, 28, 66, 0.28);
+  --calendar-cell-bg: rgba(23, 48, 93, 0.09);
+  --calendar-cell-border: rgba(87, 115, 173, 0.22);
+  --calendar-cell-hover: rgba(53, 191, 237, 0.22);
 }
 
 html[data-theme="dark"] {
@@ -34,6 +40,12 @@ html[data-theme="dark"] {
   --accent: #ff687d;
   --signature-bg: rgba(6, 12, 24, 0.88);
   --signature-ink: #f6fbff;
+  --calendar-glass-bg: linear-gradient(155deg, rgba(22, 33, 63, 0.95), rgba(10, 17, 38, 0.9));
+  --calendar-glass-border: rgba(143, 167, 228, 0.5);
+  --calendar-glass-shadow: 0 24px 56px rgba(0, 0, 0, 0.7);
+  --calendar-cell-bg: rgba(225, 236, 255, 0.08);
+  --calendar-cell-border: rgba(160, 184, 236, 0.2);
+  --calendar-cell-hover: rgba(104, 209, 255, 0.24);
 }
 
 * {
@@ -163,6 +175,7 @@ h1 {
   font-size: 0.93rem;
   font-weight: 600;
   color: var(--text);
+  min-width: 0;
 }
 
 .field-label,
@@ -207,10 +220,14 @@ h1 {
 
 .alarm-time-field {
   position: relative;
+  width: 100%;
+  min-width: 0;
 }
 
 .alarm-trigger {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -224,6 +241,19 @@ h1 {
   font-weight: 700;
   letter-spacing: 0.02em;
   touch-action: manipulation;
+}
+
+.alarm-trigger > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alarm-time-field input[type="time"] {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .alarm-display-placeholder {
@@ -327,11 +357,16 @@ h1 {
   padding: 0.85rem;
   width: min(100vw - 2.2rem, 334px);
   border-radius: 16px;
+  background: var(--calendar-glass-bg);
+  border: 1px solid var(--calendar-glass-border);
+  box-shadow: var(--calendar-glass-shadow);
+  backdrop-filter: blur(22px) saturate(1.35);
+  -webkit-backdrop-filter: blur(22px) saturate(1.35);
 }
 
 .modern-daypicker {
   --rdp-accent-color: var(--brand);
-  --rdp-accent-background-color: color-mix(in srgb, var(--brand) 18%, transparent);
+  --rdp-accent-background-color: color-mix(in srgb, var(--brand) 28%, transparent);
   --rdp-day_button-width: 38px;
   --rdp-day_button-height: 38px;
   --rdp-day-height: 40px;
@@ -344,28 +379,39 @@ h1 {
 .modern-daypicker .rdp-caption_label {
   font-size: 0.94rem;
   font-weight: 700;
+  color: color-mix(in srgb, var(--text) 92%, var(--brand) 8%);
 }
 
 .modern-daypicker .rdp-weekday {
   font-size: 0.75rem;
   text-transform: uppercase;
-  color: var(--muted);
+  color: color-mix(in srgb, var(--muted) 88%, var(--text) 12%);
   font-weight: 700;
 }
 
 .modern-daypicker .rdp-day_button {
   border-radius: 10px;
-  border: 1px solid transparent;
+  border: 1px solid var(--calendar-cell-border);
+  background: var(--calendar-cell-bg);
 }
 
 .modern-daypicker .rdp-day_button:hover {
   border-color: color-mix(in srgb, var(--focus) 60%, transparent);
-  background: color-mix(in srgb, var(--focus) 12%, transparent);
+  background: var(--calendar-cell-hover);
 }
 
 .modern-daypicker .rdp-selected .rdp-day_button {
   background: linear-gradient(120deg, var(--brand), var(--brand-strong));
   color: #fff;
+  border-color: color-mix(in srgb, var(--brand) 78%, #ffffff 22%);
+}
+
+.modern-daypicker .rdp-day:not(.rdp-selected) .rdp-day_button:active {
+  background: color-mix(in srgb, var(--calendar-cell-hover) 78%, var(--calendar-cell-bg) 22%);
+}
+
+.modern-daypicker .rdp-outside {
+  opacity: 0.64;
 }
 
 .whatsapp-support {
@@ -622,6 +668,11 @@ button:disabled {
   .two-col,
   .signature-grid {
     grid-template-columns: 1fr;
+  }
+
+  .two-col > *,
+  .signature-grid > * {
+    min-width: 0;
   }
 
   .actions {

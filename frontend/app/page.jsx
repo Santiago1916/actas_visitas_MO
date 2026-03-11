@@ -16,6 +16,8 @@ const SUPPORT_PHONE = "573022509856";
 const SUPPORT_TEXT = "tengo problema con el acta de visitas mundo ocupacional";
 const SUPPORT_WA_URL = `https://wa.me/${SUPPORT_PHONE}?text=${encodeURIComponent(SUPPORT_TEXT)}`;
 const SIMPLE_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const BOGOTA_TIMEZONE = "America/Bogota";
+const CALENDAR_MONTHS_BACK_LIMIT = 5;
 
 const SEND_STEPS = {
   idle: "",
@@ -75,12 +77,36 @@ const initialData = {
 
 let logoDataUrlPromise = null;
 
-function getTodayLocal() {
+function getTodayLocalFallbackISO() {
   const now = new Date();
   const yyyy = now.getFullYear();
   const mm = String(now.getMonth() + 1).padStart(2, "0");
   const dd = String(now.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
+}
+
+function getTodayBogotaISO() {
+  try {
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: BOGOTA_TIMEZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+
+    const parts = formatter.formatToParts(new Date());
+    const year = parts.find((part) => part.type === "year")?.value;
+    const month = parts.find((part) => part.type === "month")?.value;
+    const day = parts.find((part) => part.type === "day")?.value;
+
+    if (year && month && day) {
+      return `${year}-${month}-${day}`;
+    }
+  } catch {
+    // Ignore and use local fallback.
+  }
+
+  return getTodayLocalFallbackISO();
 }
 
 function formatCoordinate(value) {
@@ -105,6 +131,25 @@ function formatAsISODate(value) {
   const mm = String(value.getMonth() + 1).padStart(2, "0");
   const dd = String(value.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
+}
+
+function subtractMonthsClamped(baseDate, months) {
+  const year = baseDate.getFullYear();
+  const monthIndex = baseDate.getMonth() - months;
+  const day = baseDate.getDate();
+  const maxDayInTargetMonth = new Date(year, monthIndex + 1, 0).getDate();
+  const safeDay = Math.min(day, maxDayInTargetMonth);
+  return new Date(year, monthIndex, safeDay);
+}
+
+function clampDateToRange(targetDate, minDate, maxDate) {
+  const normalizedTarget = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
+  const normalizedMin = new Date(minDate.getFullYear(), minDate.getMonth(), minDate.getDate());
+  const normalizedMax = new Date(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate());
+
+  if (normalizedTarget < normalizedMin) return normalizedMin;
+  if (normalizedTarget > normalizedMax) return normalizedMax;
+  return normalizedTarget;
 }
 
 function buildGoogleMapsUrl(lat, lng) {
@@ -271,7 +316,7 @@ async function buildIdempotencyKey({ fields, firmaAsesor, firmaResponsable }) {
 }
 
 export default function Page() {
-  const [formData, setFormData] = useState({ ...initialData, fecha: getTodayLocal() });
+  const [formData, setFormData] = useState({ ...initialData, fecha: getTodayBogotaISO() });
   const [errors, setErrors] = useState({});
   const [isSending, setIsSending] = useState(false);
   const [sendStep, setSendStep] = useState("idle");
@@ -284,6 +329,18 @@ export default function Page() {
   const hasShownWelcomeRef = useRef(false);
 
   const sendStepLabel = useMemo(() => SEND_STEPS[sendStep] || "Procesando...", [sendStep]);
+  const maxCalendarDate = useMemo(() => parseISODate(getTodayBogotaISO()) || new Date(), []);
+  const minCalendarDate = useMemo(
+    () => subtractMonthsClamped(maxCalendarDate, CALENDAR_MONTHS_BACK_LIMIT),
+    [maxCalendarDate]
+  );
+  const dayPickerDisabledMatchers = useMemo(() => {
+    const matchers = [{ before: minCalendarDate }, { after: maxCalendarDate }];
+    if (isSending) {
+      matchers.push(() => true);
+    }
+    return matchers;
+  }, [minCalendarDate, maxCalendarDate, isSending]);
 
   useEffect(() => {
     let nextTheme = "light";
@@ -341,7 +398,18 @@ export default function Page() {
     try {
       const draft = JSON.parse(raw);
       if (draft.fields) {
-        setFormData((prev) => ({ ...prev, ...draft.fields }));
+        setFormData((prev) => {
+          const next = { ...prev, ...draft.fields };
+          const parsedDraftDate = parseISODate(next.fecha);
+          const safeDate = parsedDraftDate
+            ? clampDateToRange(parsedDraftDate, minCalendarDate, maxCalendarDate)
+            : maxCalendarDate;
+
+          return {
+            ...next,
+            fecha: formatAsISODate(safeDate),
+          };
+        });
       }
 
       setTimeout(() => {
@@ -351,7 +419,7 @@ export default function Page() {
     } catch {
       localStorage.removeItem(STORAGE_KEY);
     }
-  }, []);
+  }, [maxCalendarDate, minCalendarDate]);
 
   function clearFieldError(name) {
     setErrors((prev) => {
@@ -375,7 +443,8 @@ export default function Page() {
 
   function handleDateSelect(day) {
     if (!day) return;
-    const nextDate = formatAsISODate(day);
+    const boundedDay = clampDateToRange(day, minCalendarDate, maxCalendarDate);
+    const nextDate = formatAsISODate(boundedDay);
     setFormData((prev) => ({ ...prev, fecha: nextDate }));
     clearFieldError("fecha");
     setIsCalendarOpen(false);
@@ -442,7 +511,7 @@ export default function Page() {
 
     setFormData({
       ...initialData,
-      fecha: getTodayLocal(),
+      fecha: getTodayBogotaISO(),
     });
     setErrors({});
     asesorRef.current?.clear();
@@ -821,7 +890,9 @@ export default function Page() {
                     weekStartsOn={1}
                     showOutsideDays
                     className="modern-daypicker"
-                    disabled={isSending}
+                    startMonth={minCalendarDate}
+                    endMonth={maxCalendarDate}
+                    disabled={dayPickerDisabledMatchers}
                   />
                 </div>
               ) : null}

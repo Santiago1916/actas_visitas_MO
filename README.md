@@ -111,16 +111,19 @@ Debe mostrar:
 
 - Formulario completo del acta
 - Campos separados para `Temas tratados`, `Compromisos` y `Observaciones`
+- Campos opcionales: `Telefono`, `Email`, `Compromisos` y `Observaciones`
 - Validacion robusta de formulario con `zod` (frontend y backend)
 - Tema claro/oscuro persistente
 - Interfaz moderna estilo liquid glass
+- Selector de hora optimizado para moviles (usa control nativo en dispositivos tactiles)
 - Firma digital para asesor SST y responsable
+- Calendario de fecha limitado a `hoy (America/Bogota)` y maximo `5 meses` hacia atras
 - Captura de ubicacion al enviar PDF (con reintento de permiso si el usuario cancela)
 - Guardar borrador en `localStorage`
-- Guardar PDF
+- Guardar PDF (primero sube a Google Drive y luego descarga el archivo en el dispositivo)
 - PDF generado con texto seleccionable
 - PDF con latitud/longitud y enlace a Google Maps
-- Enviar PDF a Google Drive con un click
+- Enviar PDF a Google Drive con un click (a traves de `Guardar PDF`)
 - Carpetas automaticas en Drive por fecha del acta: `YYYY / MM-Mes / Semana-N`
 - Nombre de archivo con ID unico de acta para evitar colisiones
 - Persistencia de datos del acta en Supabase (sin guardar binario PDF)
