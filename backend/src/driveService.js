@@ -97,6 +97,20 @@ function escapeDriveQuery(value) {
   return String(value).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
+function isInvalidGrantError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  const responseError = String(error?.response?.data?.error || "").toLowerCase();
+  const responseDescription = String(error?.response?.data?.error_description || "").toLowerCase();
+  const errorReason = String(error?.errors?.[0]?.reason || "").toLowerCase();
+
+  return (
+    message.includes("invalid_grant") ||
+    responseError === "invalid_grant" ||
+    responseDescription.includes("invalid_grant") ||
+    errorReason === "invalid_grant"
+  );
+}
+
 export function isOAuthConfigured() {
   return Boolean(getOAuthConfig());
 }
@@ -288,30 +302,41 @@ async function resolveFolderByFecha({ drive, rootFolderId, fecha }) {
 }
 
 export async function uploadPdfToDrive({ fileName, pdfBuffer, fields = {} }) {
-  const rootFolderId = requiredEnv("GOOGLE_DRIVE_FOLDER_ID");
-  const drive = await buildDriveClient();
-  const folder = await resolveFolderByFecha({
-    drive,
-    rootFolderId,
-    fecha: fields?.fecha,
-  });
+  try {
+    const rootFolderId = requiredEnv("GOOGLE_DRIVE_FOLDER_ID");
+    const drive = await buildDriveClient();
+    const folder = await resolveFolderByFecha({
+      drive,
+      rootFolderId,
+      fecha: fields?.fecha,
+    });
 
-  const response = await drive.files.create({
-    supportsAllDrives: true,
-    requestBody: {
-      name: fileName,
-      parents: [folder.targetFolderId],
-      mimeType: "application/pdf",
-    },
-    media: {
-      mimeType: "application/pdf",
-      body: Readable.from(pdfBuffer),
-    },
-    fields: "id,name,webViewLink,webContentLink",
-  });
+    const response = await drive.files.create({
+      supportsAllDrives: true,
+      requestBody: {
+        name: fileName,
+        parents: [folder.targetFolderId],
+        mimeType: "application/pdf",
+      },
+      media: {
+        mimeType: "application/pdf",
+        body: Readable.from(pdfBuffer),
+      },
+      fields: "id,name,webViewLink,webContentLink",
+    });
 
-  return {
-    ...response.data,
-    folder,
-  };
+    return {
+      ...response.data,
+      folder,
+    };
+  } catch (error) {
+    if (isInvalidGrantError(error)) {
+      const authError = new Error(
+        "Google OAuth token invalido o revocado (invalid_grant). Reautoriza en /api/auth/google/connect."
+      );
+      authError.code = "OAUTH_REAUTH_REQUIRED";
+      throw authError;
+    }
+    throw error;
+  }
 }

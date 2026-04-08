@@ -557,6 +557,25 @@ app.post("/api/drive/upload-pdf", async (req, res) => {
       });
     }
 
+    if (error?.code === "OAUTH_REAUTH_REQUIRED") {
+      logStructured("warn", "upload.oauth_reauth_required", {
+        requestId,
+        idempotencyKey,
+        actaCode,
+        error: error?.message || "OAuth reauthorization required",
+      });
+
+      return sendApiError(res, 401, {
+        code: "OAUTH_REAUTH_REQUIRED",
+        message: "La autorizacion de Google caduco o fue revocada.",
+        details: "Abre /api/auth/google/connect para reconectar la cuenta de Google y vuelve a intentar.",
+        authUrl: isOAuthConfigured() ? getGoogleOAuthUrl() : null,
+        requestId,
+        idempotencyKey,
+        actaCode,
+      });
+    }
+
     if (
       error?.code === "OAUTH_TOKEN_STORE_READONLY" ||
       error?.code === "SUPABASE_OAUTH_TOKEN_READ_FAILED" ||
