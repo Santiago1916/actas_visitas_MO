@@ -9,6 +9,8 @@ create table if not exists public.actas_visita (
   hora_inicio time,
   hora_fin time,
   contacto_empresa text,
+  encargado_empresa_nombre text,
+  acepta_condiciones_datos boolean not null default false,
   telefono text,
   email text,
   participantes text,

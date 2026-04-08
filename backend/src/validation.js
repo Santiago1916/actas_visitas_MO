@@ -26,6 +26,10 @@ const fieldsSchema = z
       .string({ required_error: "La hora de fin es obligatoria." })
       .regex(TIME_RE, "La hora de fin debe tener formato HH:mm."),
     contacto: requiredText("El contacto", 180),
+    encargadoEmpresaNombre: requiredText("El nombre del encargado de la empresa", 180),
+    aceptaCondicionesDatos: z
+      .boolean({ required_error: "La aceptacion de condiciones es obligatoria." })
+      .refine((value) => value === true, "Debes aceptar las condiciones de la visita y el tratamiento de datos."),
     telefono: z
       .string()
       .trim()
