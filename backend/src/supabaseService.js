@@ -14,9 +14,43 @@ function requiredEnv(name) {
   return value;
 }
 
+function normalizeSupabaseUrl(value, sourceName) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    const error = new Error(`Missing ${sourceName}`);
+    error.code = "SUPABASE_NOT_CONFIGURED";
+    throw error;
+  }
+
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const parsed = new URL(raw);
+      return parsed.origin;
+    } catch {
+      const error = new Error(`Invalid ${sourceName}: expected a valid URL, received "${raw}"`);
+      error.code = "SUPABASE_NOT_CONFIGURED";
+      throw error;
+    }
+  }
+
+  if (/^[a-z0-9-]+\.supabase\.co$/i.test(raw)) {
+    return `https://${raw}`;
+  }
+
+  if (/^[a-z0-9-]+$/i.test(raw)) {
+    return `https://${raw}.supabase.co`;
+  }
+
+  const error = new Error(
+    `Invalid ${sourceName}: expected project id (e.g. "abc123") or URL, received "${raw}"`
+  );
+  error.code = "SUPABASE_NOT_CONFIGURED";
+  throw error;
+}
+
 function getSupabaseUrl() {
   const explicitUrl = process.env.SUPABASE_URL;
-  if (explicitUrl) return explicitUrl;
+  if (explicitUrl) return normalizeSupabaseUrl(explicitUrl, "SUPABASE_URL");
 
   const projectId = process.env.SUPABASE_PROJECT_ID;
   if (!projectId) {
@@ -25,7 +59,7 @@ function getSupabaseUrl() {
     throw error;
   }
 
-  return `https://${projectId}.supabase.co`;
+  return normalizeSupabaseUrl(projectId, "SUPABASE_PROJECT_ID");
 }
 
 function getSupabaseKey() {
@@ -68,18 +102,39 @@ function normalizeTokenObject(value) {
   return value;
 }
 
+function formatSupabaseError(prefix, error) {
+  const base = String(error?.message || error || "unknown error");
+  const cause = error?.cause?.message || error?.details || null;
+  const message = cause ? `${prefix}: ${base} | cause: ${cause}` : `${prefix}: ${base}`;
+  const wrapped = new Error(message);
+  wrapped.details = {
+    message: base,
+    cause: cause || null,
+  };
+  return wrapped;
+}
+
 export async function readGoogleOAuthTokenFromSupabase() {
   const supabase = getSupabaseClient();
-  const { data, error } = await supabase
-    .from(OAUTH_TOKEN_TABLE)
-    .select("token_json")
-    .eq("token_key", OAUTH_TOKEN_KEY)
-    .maybeSingle();
+  let data;
+  let error;
+  try {
+    const response = await supabase
+      .from(OAUTH_TOKEN_TABLE)
+      .select("token_json")
+      .eq("token_key", OAUTH_TOKEN_KEY)
+      .maybeSingle();
+    data = response.data;
+    error = response.error;
+  } catch (fetchError) {
+    const dbError = formatSupabaseError("Supabase oauth token read failed", fetchError);
+    dbError.code = "SUPABASE_OAUTH_TOKEN_READ_FAILED";
+    throw dbError;
+  }
 
   if (error) {
-    const dbError = new Error(`Supabase oauth token read failed: ${error.message}`);
+    const dbError = formatSupabaseError("Supabase oauth token read failed", error);
     dbError.code = "SUPABASE_OAUTH_TOKEN_READ_FAILED";
-    dbError.details = error;
     throw dbError;
   }
 
@@ -101,14 +156,21 @@ export async function saveGoogleOAuthTokenToSupabase(tokens) {
     updated_at: new Date().toISOString(),
   };
 
-  const { error } = await supabase
-    .from(OAUTH_TOKEN_TABLE)
-    .upsert(payload, { onConflict: "token_key" });
+  let error;
+  try {
+    const response = await supabase
+      .from(OAUTH_TOKEN_TABLE)
+      .upsert(payload, { onConflict: "token_key" });
+    error = response.error;
+  } catch (fetchError) {
+    const dbError = formatSupabaseError("Supabase oauth token save failed", fetchError);
+    dbError.code = "SUPABASE_OAUTH_TOKEN_SAVE_FAILED";
+    throw dbError;
+  }
 
   if (error) {
-    const dbError = new Error(`Supabase oauth token save failed: ${error.message}`);
+    const dbError = formatSupabaseError("Supabase oauth token save failed", error);
     dbError.code = "SUPABASE_OAUTH_TOKEN_SAVE_FAILED";
-    dbError.details = error;
     throw dbError;
   }
 }
@@ -149,16 +211,25 @@ export async function insertActaVisitRecord({
     drive_week_of_month: numberOrNull(driveFolder?.weekOfMonth),
   };
 
-  const { data, error } = await supabase
-    .from("actas_visita")
-    .insert(payload)
-    .select("id, acta_code, fecha, created_at")
-    .single();
+  let data;
+  let error;
+  try {
+    const response = await supabase
+      .from("actas_visita")
+      .insert(payload)
+      .select("id, acta_code, fecha, created_at")
+      .single();
+    data = response.data;
+    error = response.error;
+  } catch (fetchError) {
+    const dbError = formatSupabaseError("Supabase insert failed", fetchError);
+    dbError.code = "SUPABASE_INSERT_FAILED";
+    throw dbError;
+  }
 
   if (error) {
-    const dbError = new Error(`Supabase insert failed: ${error.message}`);
+    const dbError = formatSupabaseError("Supabase insert failed", error);
     dbError.code = "SUPABASE_INSERT_FAILED";
-    dbError.details = error;
     throw dbError;
   }
 
