@@ -28,6 +28,13 @@ const GEOLOCATION_FALLBACK_OPTIONS = Object.freeze({
   timeout: 10000,
   maximumAge: 5 * 60 * 1000,
 });
+const DATA_POLICY_TITLE = "ACEPTACIÓN DE LA VISITA Y TRATAMIENTO DE DATOS";
+const DATA_POLICY_EMAIL = "servicioalcliente@mundoocupacional.com";
+const DATA_POLICY_WEB_URL = "https://www.mundoocupacional.com";
+const DATA_POLICY_ITEMS = [
+  "1. Conformidad de la visita (SST): Recibí a satisfacción las actividades ejecutadas por el asesor de MUNDO OCUPACIONAL S.A.S. Reconozco que esta firma electrónica tiene total validez legal y probatoria (Ley 527 de 1999) como evidencia de gestión para nuestro SG-SST ante el Ministerio del Trabajo y la ARL (Decreto 1072 de 2015).",
+  "2. Tratamiento de Datos (Ley 1581): Autorizo a MUNDO OCUPACIONAL S.A.S. (NIT 900.520.288-1) a tratar mis datos personales aquí registrados exclusivamente para documentar esta visita y gestionar el servicio. Conozco que puedo ejercer mis derechos (conocer, actualizar o borrar mis datos) escribiendo a [EMAIL] o leyendo la política completa en [WEB].",
+];
 
 const SEND_STEPS = {
   idle: "",
@@ -45,6 +52,14 @@ const formSchema = z
     horaInicio: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Hora inicio invalida."),
     horaFin: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Hora fin invalida."),
     contacto: z.string().trim().min(1, "Ingresa el contacto de la empresa.").max(180, "Contacto demasiado largo."),
+    encargadoEmpresaNombre: z
+      .string()
+      .trim()
+      .min(1, "Ingresa el nombre del encargado de la empresa.")
+      .max(180, "Nombre del encargado demasiado largo."),
+    aceptaCondicionesDatos: z
+      .boolean()
+      .refine((value) => value === true, "Debes aceptar las condiciones de la visita y el tratamiento de datos."),
     telefono: z
       .string()
       .trim()
@@ -77,6 +92,8 @@ const initialData = {
   horaInicio: "",
   horaFin: "",
   contacto: "",
+  encargadoEmpresaNombre: "",
+  aceptaCondicionesDatos: false,
   telefono: "",
   email: "",
   participantes: "",
@@ -332,6 +349,7 @@ export default function Page() {
   const [isSending, setIsSending] = useState(false);
   const [sendStep, setSendStep] = useState("idle");
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [isDataPolicyModalOpen, setIsDataPolicyModalOpen] = useState(false);
   const [theme, setTheme] = useState("light");
   const [isThemeHydrated, setIsThemeHydrated] = useState(false);
   const asesorRef = useRef(null);
@@ -390,6 +408,10 @@ export default function Page() {
 
     function handleEsc(event) {
       if (event.key === "Escape") {
+        if (isDataPolicyModalOpen) {
+          setIsDataPolicyModalOpen(false);
+          return;
+        }
         setIsCalendarOpen(false);
       }
     }
@@ -400,7 +422,7 @@ export default function Page() {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleEsc);
     };
-  }, [isCalendarOpen]);
+  }, [isCalendarOpen, isDataPolicyModalOpen]);
 
   useEffect(() => {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -442,8 +464,9 @@ export default function Page() {
   }
 
   function onFieldChange(event) {
-    const { name, value } = event.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    const { name, type, value, checked } = event.target;
+    const nextValue = type === "checkbox" ? checked : value;
+    setFormData((prev) => ({ ...prev, [name]: nextValue }));
     clearFieldError(name);
 
     if (name === "horaInicio" || name === "horaFin") {
@@ -525,9 +548,38 @@ export default function Page() {
       fecha: getTodayBogotaISO(),
     });
     setErrors({});
+    setIsDataPolicyModalOpen(false);
     asesorRef.current?.clear();
     responsableRef.current?.clear();
     localStorage.removeItem(STORAGE_KEY);
+  }
+
+  async function copyDataPolicyEmail() {
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(DATA_POLICY_EMAIL);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = DATA_POLICY_EMAIL;
+        textarea.setAttribute("readonly", "true");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        textarea.remove();
+      }
+
+      sileo.success({
+        title: "Correo copiado",
+        description: `Se copió ${DATA_POLICY_EMAIL} al portapapeles.`,
+      });
+    } catch {
+      sileo.warning({
+        title: "No se pudo copiar",
+        description: `Copia manualmente el correo: ${DATA_POLICY_EMAIL}`,
+      });
+    }
   }
 
   async function captureLocationWithRetry() {
@@ -711,7 +763,7 @@ export default function Page() {
       optimizeSignatureDataUrl(asesorSignatureRaw),
       optimizeSignatureDataUrl(responsableSignatureRaw),
     ]);
-    const signatureBoxHeight = 50;
+    const signatureBoxHeight = 56;
     ensureSpace(signatureBoxHeight + 6);
 
     doc.setDrawColor(190, 200, 212);
@@ -729,6 +781,14 @@ export default function Page() {
     if (responsableSignature) {
       doc.addImage(responsableSignature, "PNG", margin + colWidth + colGap + 3, y + 8, colWidth - 6, 28);
     }
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    const encargadoNombreLines = splitByWidth(
+      `Nombre encargado: ${normalize(formData.encargadoEmpresaNombre)}`,
+      colWidth - 6
+    );
+    doc.text(encargadoNombreLines, margin + colWidth + colGap + 3, y + 40);
 
     y += signatureBoxHeight + 4;
 
@@ -1166,6 +1226,50 @@ export default function Page() {
                 <button type="button" className="ghost no-print" onClick={() => responsableRef.current?.clear()}>
                   Limpiar firma
                 </button>
+
+                <label className="field signature-extra">
+                  <span className="field-label">
+                    Nombre del encargado de la empresa
+                    <span className="required-indicator" aria-hidden="true">
+                      *
+                    </span>
+                  </span>
+                  <input
+                    id="encargadoEmpresaNombre"
+                    name="encargadoEmpresaNombre"
+                    type="text"
+                    value={formData.encargadoEmpresaNombre}
+                    onChange={onFieldChange}
+                    required
+                  />
+                  {errors.encargadoEmpresaNombre ? <p className="error">{errors.encargadoEmpresaNombre}</p> : null}
+                </label>
+
+                <div className="consent-wrap">
+                  <label className="consent-label" htmlFor="aceptaCondicionesDatos">
+                    <input
+                      id="aceptaCondicionesDatos"
+                      name="aceptaCondicionesDatos"
+                      type="checkbox"
+                      checked={Boolean(formData.aceptaCondicionesDatos)}
+                      onChange={onFieldChange}
+                      required
+                    />
+                    <span>He leido y acepto las condiciones de la visita y el tratamiento de mis datos.</span>
+                  </label>
+
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => setIsDataPolicyModalOpen(true)}
+                    aria-haspopup="dialog"
+                    aria-expanded={isDataPolicyModalOpen}
+                  >
+                    Ver mas informacion del tratamiento de datos
+                  </button>
+
+                  {errors.aceptaCondicionesDatos ? <p className="error">{errors.aceptaCondicionesDatos}</p> : null}
+                </div>
               </div>
             </section>
 
@@ -1185,6 +1289,56 @@ export default function Page() {
           </fieldset>
         </form>
       </section>
+
+      {isDataPolicyModalOpen ? (
+        <div className="modal-backdrop no-print" role="presentation" onClick={() => setIsDataPolicyModalOpen(false)}>
+          <section
+            className="glass-card legal-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="data-policy-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="legal-modal-header">
+              <h2 id="data-policy-title">{DATA_POLICY_TITLE}</h2>
+            </header>
+
+            <div className="legal-modal-content">
+              {DATA_POLICY_ITEMS.map((item, index) => {
+                if (index !== 1) {
+                  return <p key={item}>{item}</p>;
+                }
+
+                const withEmail = item.split("[EMAIL]");
+                const withWeb = withEmail[1]?.split("[WEB]") || [];
+
+                return (
+                  <p key={item}>
+                    {withEmail[0]}
+                    <a className="legal-link" href={`mailto:${DATA_POLICY_EMAIL}`}>
+                      {DATA_POLICY_EMAIL}
+                    </a>
+                    {withWeb[0]}
+                    <a className="legal-link" href={DATA_POLICY_WEB_URL} target="_blank" rel="noreferrer">
+                      www.mundoocupacional.com
+                    </a>
+                    {withWeb[1] || ""}
+                  </p>
+                );
+              })}
+            </div>
+
+            <div className="legal-modal-actions">
+              <button type="button" className="ghost" onClick={copyDataPolicyEmail}>
+                Copiar correo
+              </button>
+              <button type="button" className="accent" onClick={() => setIsDataPolicyModalOpen(false)}>
+                Entendido
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }

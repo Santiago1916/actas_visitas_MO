@@ -192,6 +192,8 @@ export async function insertActaVisitRecord({
     hora_inicio: nullable(fields.horaInicio),
     hora_fin: nullable(fields.horaFin),
     contacto_empresa: nullable(fields.contacto),
+    encargado_empresa_nombre: nullable(fields.encargadoEmpresaNombre),
+    acepta_condiciones_datos: Boolean(fields.aceptaCondicionesDatos),
     telefono: nullable(fields.telefono),
     email: nullable(fields.email),
     participantes: nullable(fields.participantes),

@@ -49,7 +49,7 @@ SUPABASE_SECRET_KEY=TU_SUPABASE_SECRET_KEY
 2. Ejecuta el contenido de:
    - `backend/sql_actas_visita.sql`
    - `backend/sql_oauth_tokens.sql`
-   - Si ya tienes la tabla creada: `backend/sql_migration_add_compromisos_observaciones.sql`
+   - Si ya tienes la tabla creada: `backend/sql_migration_encargado_aceptacion.sql`
 
 Esto crea la tabla `public.actas_visita`, indices y trigger de `updated_at`.
 
@@ -117,6 +117,8 @@ Debe mostrar:
 - Interfaz moderna estilo liquid glass
 - Selector de hora optimizado para moviles (usa control nativo en dispositivos tactiles)
 - Firma digital para asesor SST y responsable
+- Nombre obligatorio del encargado que firma por la empresa
+- Aceptacion obligatoria de condiciones de visita y tratamiento de datos con modal informativo
 - Calendario de fecha limitado a `hoy (America/Bogota)` y maximo `5 meses` hacia atras
 - Captura de ubicacion al enviar PDF (con reintento de permiso si el usuario cancela)
 - Guardar borrador en `localStorage`
