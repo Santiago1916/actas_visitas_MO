@@ -567,6 +567,7 @@ app.post("/api/drive/upload-pdf", async (req, res) => {
         idempotencyKey,
         actaCode,
         error: error?.message || "OAuth token store failed",
+        errorDetails: error?.details || null,
       });
 
       return sendApiError(res, 500, {
