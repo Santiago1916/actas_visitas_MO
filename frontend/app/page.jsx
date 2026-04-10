@@ -12,7 +12,7 @@ const STORAGE_KEY = "actaVisitaDraft.v4.next";
 const THEME_KEY = "actaVisitaTheme.v1";
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
 const MAX_VERCEL_FUNCTION_PAYLOAD_BYTES = 4_300_000;
-const SUPPORT_PHONE = "573022509856";
+const SUPPORT_PHONE = "573113803224";
 const SUPPORT_TEXT = "tengo problema con el acta de visitas mundo ocupacional";
 const SUPPORT_WA_URL = `https://wa.me/${SUPPORT_PHONE}?text=${encodeURIComponent(SUPPORT_TEXT)}`;
 const SIMPLE_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -28,7 +28,7 @@ const GEOLOCATION_FALLBACK_OPTIONS = Object.freeze({
   timeout: 10000,
   maximumAge: 5 * 60 * 1000,
 });
-const DATA_POLICY_TITLE = "ACEPTACIÓN DE LA VISITA Y TRATAMIENTO DE DATOS";
+const DATA_POLICY_TITLE = "ACEPTACIÓN DE LA ACTIVIDAD Y TRATAMIENTO DE DATOS";
 const DATA_POLICY_EMAIL = "servicioalcliente@mundoocupacional.com";
 const DATA_POLICY_WEB_URL = "https://www.mundoocupacional.com";
 const DATA_POLICY_ITEMS = [
@@ -72,8 +72,8 @@ const formSchema = z
       .refine((value) => value.length === 0 || SIMPLE_EMAIL_RE.test(value), "Email invalido."),
     participantes: z.string().trim().min(3, "Ingresa los participantes.").max(2000, "Texto demasiado largo."),
     temasTratados: z.string().trim().min(5, "Ingresa los temas tratados.").max(6000, "Texto demasiado largo."),
-    compromisos: z.string().trim().max(4000, "Texto demasiado largo."),
-    observaciones: z.string().trim().max(4000, "Texto demasiado largo."),
+    compromisos: z.string().trim().min(1, "Ingresa los compromisos.").max(4000, "Texto demasiado largo."),
+    observaciones: z.string().trim().min(1, "Ingresa las observaciones.").max(4000, "Texto demasiado largo."),
   })
   .superRefine((value, ctx) => {
     if (value.horaFin < value.horaInicio) {
@@ -273,8 +273,24 @@ async function optimizeSignatureDataUrl(dataUrl) {
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(dataUrl);
+          return;
+        }
         ctx.clearRect(0, 0, width, height);
         ctx.drawImage(image, 0, 0, width, height);
+
+        // Force dark ink in the PDF while preserving anti-aliasing alpha.
+        const imageData = ctx.getImageData(0, 0, width, height);
+        const pixels = imageData.data;
+        for (let index = 0; index < pixels.length; index += 4) {
+          const alpha = pixels[index + 3];
+          if (alpha === 0) continue;
+          pixels[index] = 0;
+          pixels[index + 1] = 0;
+          pixels[index + 2] = 0;
+        }
+        ctx.putImageData(imageData, 0, 0);
 
         resolve(canvas.toDataURL("image/png"));
       };
@@ -772,7 +788,7 @@ export default function Page() {
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(9.4);
-    doc.text("Firma asesor SST Mundo Ocupacional", margin + 3, y + 5);
+    doc.text("Firma del Participante (Consultor SST mundo ocupacional)", margin + 3, y + 5);
     doc.text("Firma responsable encargado de la empresa", margin + colWidth + colGap + 3, y + 5);
 
     if (asesorSignature) {
@@ -953,7 +969,7 @@ export default function Page() {
               className="brand-mark"
             />
             <div>
-              <h1>Acta de Visita</h1>
+              <h1>Acta de Actividades</h1>
             </div>
           </div>
 
@@ -1181,7 +1197,9 @@ export default function Page() {
               <label className="field">
                 <span className="field-label">
                   Compromisos
-                  <span className="optional-indicator">(opcional)</span>
+                  <span className="required-indicator" aria-hidden="true">
+                    *
+                  </span>
                 </span>
                 <textarea
                   id="compromisos"
@@ -1190,6 +1208,7 @@ export default function Page() {
                   placeholder="Acuerdos, responsables y fechas objetivo."
                   value={formData.compromisos}
                   onChange={onFieldChange}
+                  required
                 ></textarea>
                 {errors.compromisos ? <p className="error">{errors.compromisos}</p> : null}
               </label>
@@ -1199,7 +1218,9 @@ export default function Page() {
               <label className="field">
                 <span className="field-label">
                   Observaciones
-                  <span className="optional-indicator">(opcional)</span>
+                  <span className="required-indicator" aria-hidden="true">
+                    *
+                  </span>
                 </span>
                 <textarea
                   id="observaciones"
@@ -1208,6 +1229,7 @@ export default function Page() {
                   placeholder="Observaciones adicionales de la visita."
                   value={formData.observaciones}
                   onChange={onFieldChange}
+                  required
                 ></textarea>
                 {errors.observaciones ? <p className="error">{errors.observaciones}</p> : null}
               </label>
@@ -1215,7 +1237,7 @@ export default function Page() {
 
             <section className="glass-card panel signature-grid">
               <div>
-                <SignatureField ref={asesorRef} title="Firma asesor SST Mundo Ocupacional" />
+                <SignatureField ref={asesorRef} title="Firma del Participante (Consultor SST mundo ocupacional)" />
                 <button type="button" className="ghost no-print" onClick={() => asesorRef.current?.clear()}>
                   Limpiar firma
                 </button>
