@@ -18,6 +18,11 @@ const SUPPORT_WA_URL = `https://wa.me/${SUPPORT_PHONE}?text=${encodeURIComponent
 const SIMPLE_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BOGOTA_TIMEZONE = "America/Bogota";
 const CALENDAR_MONTHS_BACK_LIMIT = 5;
+const DEFAULT_ACTA_TYPE = "visitas";
+const ACTA_TYPE_OPTIONS = Object.freeze([
+  { value: "visitas", title: "Acta de Visitas", subtitle: "Registro de visita SST" },
+  { value: "actividades", title: "Acta de Actividades", subtitle: "Registro de actividades SST" },
+]);
 const GEOLOCATION_PRECISE_OPTIONS = Object.freeze({
   enableHighAccuracy: true,
   timeout: 12000,
@@ -72,7 +77,7 @@ const formSchema = z
       .refine((value) => value.length === 0 || SIMPLE_EMAIL_RE.test(value), "Email invalido."),
     participantes: z.string().trim().min(3, "Ingresa los participantes.").max(2000, "Texto demasiado largo."),
     temasTratados: z.string().trim().min(5, "Ingresa los temas tratados.").max(6000, "Texto demasiado largo."),
-    compromisos: z.string().trim().min(1, "Ingresa los compromisos.").max(4000, "Texto demasiado largo."),
+    compromisos: z.string().trim().min(1, "Ingresa los planes de accion.").max(4000, "Texto demasiado largo."),
     observaciones: z.string().trim().min(1, "Ingresa las observaciones.").max(4000, "Texto demasiado largo."),
   })
   .superRefine((value, ctx) => {
@@ -353,6 +358,7 @@ async function buildIdempotencyKey({ fields, firmaAsesor, firmaResponsable }) {
     fields,
     firmaAsesor,
     firmaResponsable,
+    actaType: fields?.__actaType || DEFAULT_ACTA_TYPE,
   });
 
   const digest = await sha256Hex(seed);
@@ -361,6 +367,7 @@ async function buildIdempotencyKey({ fields, firmaAsesor, firmaResponsable }) {
 
 export default function Page() {
   const [formData, setFormData] = useState({ ...initialData, fecha: getTodayBogotaISO() });
+  const [actaType, setActaType] = useState(DEFAULT_ACTA_TYPE);
   const [errors, setErrors] = useState({});
   const [isSending, setIsSending] = useState(false);
   const [sendStep, setSendStep] = useState("idle");
@@ -386,6 +393,10 @@ export default function Page() {
     }
     return matchers;
   }, [minCalendarDate, maxCalendarDate, isSending]);
+  const actaHeader = useMemo(
+    () => ACTA_TYPE_OPTIONS.find((option) => option.value === actaType) || ACTA_TYPE_OPTIONS[0],
+    [actaType]
+  );
 
   useEffect(() => {
     let nextTheme = "light";
@@ -459,6 +470,9 @@ export default function Page() {
             fecha: formatAsISODate(safeDate),
           };
         });
+      }
+      if (draft.actaType && ACTA_TYPE_OPTIONS.some((option) => option.value === draft.actaType)) {
+        setActaType(draft.actaType);
       }
 
       setTimeout(() => {
@@ -541,6 +555,7 @@ export default function Page() {
   function collectPayload() {
     return {
       fields: formData,
+      actaType,
       firmaAsesor: asesorRef.current?.toDataURL() || "",
       firmaResponsable: responsableRef.current?.toDataURL() || "",
     };
@@ -563,6 +578,7 @@ export default function Page() {
       ...initialData,
       fecha: getTodayBogotaISO(),
     });
+    setActaType(DEFAULT_ACTA_TYPE);
     setErrors({});
     setIsDataPolicyModalOpen(false);
     asesorRef.current?.clear();
@@ -744,11 +760,11 @@ export default function Page() {
     doc.setTextColor(43, 27, 128);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(16);
-    doc.text("Acta de Visita", margin + 53, y + 13);
+    doc.text(actaHeader.title, margin + 53, y + 13);
     doc.setTextColor(88, 101, 120);
     doc.setFontSize(11);
     doc.setFont("helvetica", "normal");
-    doc.text("Registro de visita SST", margin + 53, y + 18.5);
+    doc.text(actaHeader.subtitle, margin + 53, y + 18.5);
     doc.setTextColor(30, 40, 55);
     y += 28;
 
@@ -770,7 +786,7 @@ export default function Page() {
 
     drawTextSection("Participantes", formData.participantes, 4);
     drawTextSection("Temas tratados o actividades realizadas", formData.temasTratados, 7);
-    drawTextSection("Compromisos", formData.compromisos, 5);
+    drawTextSection("Planes de accion", formData.compromisos, 5);
     drawTextSection("Observaciones", formData.observaciones, 5);
 
     const asesorSignatureRaw = asesorRef.current?.toDataURL() || "";
@@ -844,7 +860,7 @@ export default function Page() {
       });
 
       const idempotencyKey = await buildIdempotencyKey({
-        fields: formData,
+        fields: { ...formData, __actaType: actaType },
         firmaAsesor,
         firmaResponsable,
       });
@@ -951,7 +967,10 @@ export default function Page() {
     const uploadResult = await uploadActaToDrive();
     if (!uploadResult?.pdfBase64) return;
 
-    downloadPdfFromBase64(uploadResult.pdfBase64, uploadResult.fileName || "acta-visita.pdf");
+    downloadPdfFromBase64(
+      uploadResult.pdfBase64,
+      uploadResult.fileName || (actaType === "actividades" ? "acta-actividades.pdf" : "acta-visitas.pdf")
+    );
     sileo.success({
       title: "Descarga iniciada",
       description: "El PDF se envio a Drive y ahora se esta descargando en este dispositivo.",
@@ -969,11 +988,31 @@ export default function Page() {
               className="brand-mark"
             />
             <div>
-              <h1>Acta de Actividades</h1>
+              <h1>{actaHeader.title}</h1>
             </div>
           </div>
 
           <div className="topbar-actions">
+            <div className="field topbar-control no-print">
+              <label htmlFor="actaType" className="field-label">
+                Tipo de acta
+              </label>
+              <select
+                id="actaType"
+                name="actaType"
+                value={actaType}
+                onChange={(event) => setActaType(event.target.value)}
+                disabled={isSending}
+                aria-label="Tipo de acta"
+              >
+                {ACTA_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="field-date calendar-field topbar-control" ref={calendarRef}>
               <button
                 type="button"
@@ -1196,7 +1235,7 @@ export default function Page() {
             <section className="glass-card panel">
               <label className="field">
                 <span className="field-label">
-                  Compromisos
+                  Planes de accion
                   <span className="required-indicator" aria-hidden="true">
                     *
                   </span>
@@ -1205,7 +1244,10 @@ export default function Page() {
                   id="compromisos"
                   name="compromisos"
                   rows="4"
-                  placeholder="Acuerdos, responsables y fechas objetivo."
+                  placeholder={`Realizar el plan de accion bajo la metodología :
+P = Planear
+H = Hacer
+V = Verificar`}
                   value={formData.compromisos}
                   onChange={onFieldChange}
                   required
