@@ -49,6 +49,42 @@ const SEND_STEPS = {
   saving: "Guardando registro...",
 };
 
+function logFrontendEvent(level, event, data = {}) {
+  if (typeof console === "undefined") return;
+
+  const entry = {
+    timestamp: new Date().toISOString(),
+    level,
+    event,
+    ...data,
+  };
+
+  const line = JSON.stringify(entry);
+  if (level === "error") {
+    console.error(line);
+  } else if (level === "warn") {
+    console.warn(line);
+  } else {
+    console.info(line);
+  }
+}
+
+function createRequestId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `front-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getActaLogContext(fields = {}, actaType = DEFAULT_ACTA_TYPE) {
+  return {
+    actaType,
+    fecha: fields.fecha || null,
+    sede: fields.sede || null,
+    razonSocialLength: String(fields.razonSocial || "").length,
+  };
+}
+
 const formSchema = z
   .object({
     fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener formato YYYY-MM-DD."),
@@ -335,6 +371,50 @@ function resolveApiErrorMessage(payload, fallback) {
   return fallback;
 }
 
+function buildApiErrorDescription(payload, fallback) {
+  const message = resolveApiErrorMessage(payload, fallback);
+  const requestId = payload?.requestId;
+  const code = payload?.error?.code;
+  const suffix = [code ? `Codigo: ${code}` : "", requestId ? `Soporte: ${requestId}` : ""]
+    .filter(Boolean)
+    .join(" | ");
+
+  return suffix ? `${message} (${suffix})` : message;
+}
+
+function resolveReadinessIssue(checks = {}) {
+  if (checks.oauth && !checks.oauth.ok) {
+    return {
+      title: "Google Drive sin autorizacion",
+      description: checks.oauth.message || "Autoriza Google Drive antes de enviar el acta.",
+      authUrl: checks.oauth.authUrl || null,
+      code: "OAUTH_NOT_READY",
+    };
+  }
+
+  if (checks.drive && !checks.drive.ok) {
+    return {
+      title: "Drive no disponible",
+      description: checks.drive.message || "No se pudo validar la carpeta destino de Google Drive.",
+      code: "DRIVE_NOT_READY",
+    };
+  }
+
+  if (checks.supabase && !checks.supabase.ok) {
+    return {
+      title: "Base de datos no disponible",
+      description: checks.supabase.message || "No se pudo validar la tabla actas_visita en Supabase.",
+      code: "SUPABASE_NOT_READY",
+    };
+  }
+
+  return {
+    title: "Servicio no disponible",
+    description: "No se pudo validar el estado del backend.",
+    code: "UPLOAD_NOT_READY",
+  };
+}
+
 async function sha256Hex(text) {
   if (window.crypto?.subtle) {
     const buffer = new TextEncoder().encode(text);
@@ -353,12 +433,27 @@ async function sha256Hex(text) {
   return `${Math.abs(hash)}`;
 }
 
-async function buildIdempotencyKey({ fields, firmaAsesor, firmaResponsable }) {
+async function buildActaContentKey({ fields, actaType, firmaAsesor, firmaResponsable }) {
   const seed = JSON.stringify({
     fields,
     firmaAsesor,
     firmaResponsable,
-    actaType: fields?.__actaType || DEFAULT_ACTA_TYPE,
+    actaType: actaType || DEFAULT_ACTA_TYPE,
+  });
+
+  const digest = await sha256Hex(seed);
+  return `acta-content-${digest}`;
+}
+
+async function buildIdempotencyKey({ fields, actaType, firmaAsesor, firmaResponsable, location, pdfBase64 }) {
+  const pdfHash = pdfBase64 ? await sha256Hex(pdfBase64) : "";
+  const seed = JSON.stringify({
+    fields,
+    firmaAsesor,
+    firmaResponsable,
+    actaType: actaType || DEFAULT_ACTA_TYPE,
+    location,
+    pdfHash,
   });
 
   const digest = await sha256Hex(seed);
@@ -379,6 +474,7 @@ export default function Page() {
   const responsableRef = useRef(null);
   const calendarRef = useRef(null);
   const hasShownWelcomeRef = useRef(false);
+  const lastSuccessfulUploadRef = useRef(null);
 
   const sendStepLabel = useMemo(() => SEND_STEPS[sendStep] || "Procesando...", [sendStep]);
   const maxCalendarDate = useMemo(() => parseISODate(getTodayBogotaISO()) || new Date(), []);
@@ -530,6 +626,13 @@ export default function Page() {
 
     const nextErrors = buildFieldErrors(result.error.issues);
     setErrors(nextErrors);
+    logFrontendEvent("warn", "acta.validation_failed", {
+      ...getActaLogContext(formData, actaType),
+      issues: result.error.issues.map((issue) => ({
+        path: issue.path.join("."),
+        message: issue.message,
+      })),
+    });
     sileo.warning({
       title: "Formulario incompleto",
       description: "Revisa los campos marcados antes de continuar.",
@@ -542,6 +645,11 @@ export default function Page() {
     const responsableEmpty = responsableRef.current?.isEmpty() ?? true;
 
     if (asesorEmpty || responsableEmpty) {
+      logFrontendEvent("warn", "acta.signatures_missing", {
+        ...getActaLogContext(formData, actaType),
+        asesorEmpty,
+        responsableEmpty,
+      });
       sileo.warning({
         title: "Firmas incompletas",
         description: "Debes registrar ambas firmas antes de continuar.",
@@ -583,6 +691,7 @@ export default function Page() {
     setIsDataPolicyModalOpen(false);
     asesorRef.current?.clear();
     responsableRef.current?.clear();
+    lastSuccessfulUploadRef.current = null;
     localStorage.removeItem(STORAGE_KEY);
   }
 
@@ -627,10 +736,20 @@ export default function Page() {
         return mapPosition(precisePosition);
       } catch (error) {
         if (error?.code === 1) {
+          logFrontendEvent("warn", "acta.location_permission_denied", {
+            ...getActaLogContext(formData, actaType),
+            phase: "locating",
+          });
           throw error;
         }
 
         if (error?.code === 2 || error?.code === 3) {
+          logFrontendEvent("warn", "acta.location_precise_failed", {
+            ...getActaLogContext(formData, actaType),
+            phase: "locating",
+            geolocationCode: error.code,
+            message: error.message || null,
+          });
           sileo.info({
             title: "Reintentando ubicacion",
             description: "El GPS tardo mas de lo esperado. Intentando con una ubicacion aproximada del dispositivo.",
@@ -662,13 +781,72 @@ export default function Page() {
       }
 
       if (error?.code === 2) {
+        logFrontendEvent("error", "acta.location_unavailable", {
+          ...getActaLogContext(formData, actaType),
+          phase: "locating",
+          geolocationCode: error.code,
+          message: error.message || null,
+        });
         throw new Error("No se pudo determinar la ubicacion actual.");
       }
       if (error?.code === 3) {
+        logFrontendEvent("error", "acta.location_timeout", {
+          ...getActaLogContext(formData, actaType),
+          phase: "locating",
+          geolocationCode: error.code,
+          message: error.message || null,
+        });
         throw new Error("Tiempo agotado al solicitar ubicacion. Intenta activar GPS, datos moviles o Wi-Fi y vuelve a intentarlo.");
       }
+      logFrontendEvent("error", "acta.location_failed", {
+        ...getActaLogContext(formData, actaType),
+        phase: "locating",
+        message: error?.message || "Error obteniendo la ubicacion.",
+      });
       throw new Error(error?.message || "Error obteniendo la ubicacion.");
     }
+  }
+
+  async function assertUploadReadiness(baseLogContext) {
+    const response = await fetch(`${API_BASE}/api/diagnostics/upload-readiness`, {
+      method: "GET",
+      headers: {
+        "X-Request-Id": baseLogContext.requestId,
+      },
+    });
+    const payload = await response.json().catch(() => ({}));
+
+    if (response.ok && payload?.ok) {
+      logFrontendEvent("info", "acta.upload_readiness_ok", {
+        ...baseLogContext,
+        backendRequestId: payload.requestId || null,
+      });
+      return;
+    }
+
+    const issue = resolveReadinessIssue(payload?.checks);
+    logFrontendEvent("error", "acta.upload_readiness_failed", {
+      ...baseLogContext,
+      status: response.status,
+      backendRequestId: payload?.requestId || null,
+      code: issue.code,
+      checks: payload?.checks || null,
+    });
+
+    if (issue.authUrl) {
+      const authWindow = window.open(issue.authUrl, "_blank", "noopener,noreferrer");
+      if (!authWindow) {
+        sileo.info({
+          title: "Ventana bloqueada",
+          description: "Habilita pop-ups para completar la autorizacion de Google.",
+        });
+      }
+    }
+
+    const requestHint = payload?.requestId ? ` Soporte: ${payload.requestId}` : "";
+    const error = new Error(`${issue.description}${requestHint}`);
+    error.title = issue.title;
+    throw error;
   }
 
   async function buildPdfBase64(locationData) {
@@ -846,35 +1024,71 @@ export default function Page() {
     return dataUri.includes(",") ? dataUri.split(",")[1] : dataUri;
   }
 
-  async function uploadActaToDrive() {
-    const firmaAsesor = asesorRef.current?.toDataURL() || "";
-    const firmaResponsable = responsableRef.current?.toDataURL() || "";
+  async function uploadActaToDrive({ firmaAsesor, firmaResponsable, contentKey } = {}) {
+    const asesorSignature = firmaAsesor ?? asesorRef.current?.toDataURL() ?? "";
+    const responsableSignature = firmaResponsable ?? responsableRef.current?.toDataURL() ?? "";
+    const requestId = createRequestId();
+    const baseLogContext = {
+      ...getActaLogContext(formData, actaType),
+      requestId,
+      contentKey,
+    };
 
     try {
       setIsSending(true);
       setIsCalendarOpen(false);
       setSendStep("locating");
+      logFrontendEvent("info", "acta.upload_started", baseLogContext);
+      sileo.info({
+        title: "Enviando acta",
+        description: "Validando servicios antes de enviar.",
+      });
+
+      await assertUploadReadiness(baseLogContext);
+
       sileo.info({
         title: "Enviando acta",
         description: "Solicitando ubicacion del dispositivo.",
       });
 
-      const idempotencyKey = await buildIdempotencyKey({
-        fields: { ...formData, __actaType: actaType },
-        firmaAsesor,
-        firmaResponsable,
-      });
-
       const capturedLocation = await captureLocationWithRetry();
+      logFrontendEvent("info", "acta.location_captured", {
+        ...baseLogContext,
+        phase: "locating",
+        hasLocation: Boolean(capturedLocation),
+      });
 
       setSendStep("generating");
       const pdfBase64 = await buildPdfBase64(capturedLocation);
       const pdfBytes = base64ToBytes(pdfBase64);
       if (pdfBytes > MAX_VERCEL_FUNCTION_PAYLOAD_BYTES) {
-        throw new Error(
-          "El PDF es tuvo un fallo contacta con soporte."
-        );
+        logFrontendEvent("error", "acta.pdf_too_large", {
+          ...baseLogContext,
+          phase: "generating",
+          pdfBytes,
+          maxBytes: MAX_VERCEL_FUNCTION_PAYLOAD_BYTES,
+        });
+        throw new Error("El PDF supera el tamano permitido. Contacta con soporte.");
       }
+      logFrontendEvent("info", "acta.pdf_generated", {
+        ...baseLogContext,
+        phase: "generating",
+        pdfBytes,
+      });
+
+      const idempotencyKey = await buildIdempotencyKey({
+        fields: formData,
+        actaType,
+        firmaAsesor: asesorSignature,
+        firmaResponsable: responsableSignature,
+        location: capturedLocation,
+        pdfBase64,
+      });
+      logFrontendEvent("info", "acta.idempotency_key_ready", {
+        ...baseLogContext,
+        phase: "uploading",
+        idempotencyKey,
+      });
 
       setSendStep("uploading");
       const response = await fetch(`${API_BASE}/api/drive/upload-pdf`, {
@@ -882,6 +1096,7 @@ export default function Page() {
         headers: {
           "Content-Type": "application/json",
           "Idempotency-Key": idempotencyKey,
+          "X-Request-Id": requestId,
         },
         body: JSON.stringify({
           pdfBase64,
@@ -894,10 +1109,24 @@ export default function Page() {
       setSendStep("saving");
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
+        logFrontendEvent("error", "acta.upload_api_error", {
+          ...baseLogContext,
+          phase: "uploading",
+          status: response.status,
+          errorCode: payload?.error?.code || null,
+          backendRequestId: payload?.requestId || null,
+          actaCode: payload?.actaCode || null,
+          idempotencyKey,
+          message: resolveApiErrorMessage(payload, "No se pudo enviar a Drive."),
+        });
+
         if (response.status === 401 && payload?.authUrl) {
           sileo.warning({
             title: "Google Drive sin autorizacion",
-            description: "Se abrira la autorizacion de Google en una nueva pestana.",
+            description: buildApiErrorDescription(
+              payload,
+              "Se abrira la autorizacion de Google en una nueva pestana."
+            ),
           });
 
           const authWindow = window.open(payload.authUrl, "_blank", "noopener,noreferrer");
@@ -913,16 +1142,26 @@ export default function Page() {
         if (payload?.error?.code === "REQUEST_IN_PROGRESS") {
           sileo.info({
             title: "Solicitud en proceso",
-            description: resolveApiErrorMessage(payload, "La solicitud ya se esta procesando."),
+            description: buildApiErrorDescription(payload, "La solicitud ya se esta procesando."),
           });
           return null;
         }
 
-        throw new Error(resolveApiErrorMessage(payload, "No se pudo enviar a Drive."));
+        throw new Error(buildApiErrorDescription(payload, "No se pudo enviar a Drive."));
       }
 
       const fileName = payload?.driveFile?.name || "acta.pdf";
       const warning = payload?.dbWarning || null;
+      logFrontendEvent("info", "acta.upload_completed", {
+        ...baseLogContext,
+        phase: "saving",
+        backendRequestId: payload?.requestId || null,
+        actaCode: payload?.actaCode || null,
+        driveFileId: payload?.driveFile?.id || null,
+        fileName,
+        hasDbWarning: Boolean(warning),
+        idempotencyReplayed: Boolean(payload?.idempotency?.replayed),
+      });
 
       if (payload?.idempotency?.replayed) {
         sileo.info({
@@ -932,9 +1171,16 @@ export default function Page() {
       }
 
       if (warning) {
+        logFrontendEvent("warn", "acta.db_warning", {
+          ...baseLogContext,
+          phase: "saving",
+          backendRequestId: payload?.requestId || null,
+          actaCode: payload?.actaCode || null,
+          warning,
+        });
         sileo.warning({
           title: "Enviado con advertencia",
-          description: `PDF subido a Drive, pero la base de datos reporto: ${warning}`,
+          description: `PDF subido a Drive, pero la base de datos reporto un problema. Soporte: ${payload?.requestId || requestId}`,
         });
       }
 
@@ -943,13 +1189,23 @@ export default function Page() {
         description: `Acta ${fileName} subida a la nube.`,
       });
 
-      return {
+      const result = {
         pdfBase64,
         fileName,
+        contentKey,
       };
+      if (contentKey) {
+        lastSuccessfulUploadRef.current = result;
+      }
+
+      return result;
     } catch (error) {
+      logFrontendEvent("error", "acta.upload_failed", {
+        ...baseLogContext,
+        message: error?.message || "No se pudo enviar a Drive.",
+      });
       sileo.error({
-        title: "Error al enviar",
+        title: error?.title || "Error al enviar",
         description: error?.message || "No se pudo enviar a Drive.",
       });
       return null;
@@ -964,17 +1220,77 @@ export default function Page() {
     if (!validateFormDataWithSchema()) return;
     if (!validateSignatures()) return;
 
-    const uploadResult = await uploadActaToDrive();
+    const firmaAsesor = asesorRef.current?.toDataURL() || "";
+    const firmaResponsable = responsableRef.current?.toDataURL() || "";
+    const contentKey = await buildActaContentKey({
+      fields: formData,
+      actaType,
+      firmaAsesor,
+      firmaResponsable,
+    });
+    const cachedUpload = lastSuccessfulUploadRef.current;
+
+    if (cachedUpload?.contentKey === contentKey && cachedUpload?.pdfBase64) {
+      try {
+        downloadPdfFromBase64(
+          cachedUpload.pdfBase64,
+          cachedUpload.fileName || (actaType === "actividades" ? "acta-actividades.pdf" : "acta-visitas.pdf")
+        );
+        logFrontendEvent("info", "acta.download_started", {
+          ...getActaLogContext(formData, actaType),
+          source: "cache",
+          contentKey,
+          fileName: cachedUpload.fileName || null,
+        });
+        sileo.success({
+          title: "Descarga iniciada",
+          description: "Se esta descargando el PDF generado previamente para esta acta.",
+        });
+      } catch (error) {
+        logFrontendEvent("error", "acta.download_failed", {
+          ...getActaLogContext(formData, actaType),
+          source: "cache",
+          contentKey,
+          message: error?.message || "No se pudo iniciar la descarga.",
+        });
+        sileo.error({
+          title: "Error al descargar",
+          description: "No se pudo iniciar la descarga del PDF. Intenta nuevamente.",
+        });
+      }
+      return;
+    }
+
+    const uploadResult = await uploadActaToDrive({ firmaAsesor, firmaResponsable, contentKey });
     if (!uploadResult?.pdfBase64) return;
 
-    downloadPdfFromBase64(
-      uploadResult.pdfBase64,
-      uploadResult.fileName || (actaType === "actividades" ? "acta-actividades.pdf" : "acta-visitas.pdf")
-    );
-    sileo.success({
-      title: "Descarga iniciada",
-      description: "El PDF se envio a Drive y ahora se esta descargando en este dispositivo.",
-    });
+    try {
+      downloadPdfFromBase64(
+        uploadResult.pdfBase64,
+        uploadResult.fileName || (actaType === "actividades" ? "acta-actividades.pdf" : "acta-visitas.pdf")
+      );
+      logFrontendEvent("info", "acta.download_started", {
+        ...getActaLogContext(formData, actaType),
+        source: "upload",
+        contentKey,
+        fileName: uploadResult.fileName || null,
+      });
+      sileo.success({
+        title: "Descarga iniciada",
+        description: "El PDF se envio a Drive y ahora se esta descargando en este dispositivo.",
+      });
+    } catch (error) {
+      logFrontendEvent("error", "acta.download_failed", {
+        ...getActaLogContext(formData, actaType),
+        source: "upload",
+        contentKey,
+        message: error?.message || "No se pudo iniciar la descarga.",
+      });
+      sileo.error({
+        title: "Error al descargar",
+        description: "El PDF fue enviado a Drive, pero no se pudo descargar en este dispositivo.",
+      });
+    }
   }
 
   return (

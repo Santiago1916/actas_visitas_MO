@@ -6,13 +6,14 @@ import path from "path";
 import crypto from "crypto";
 import { fileURLToPath } from "url";
 import {
+  checkDriveFolderAccess,
   completeGoogleOAuth,
   getGoogleOAuthUrl,
   hasStoredOAuthToken,
   isOAuthConfigured,
   uploadPdfToDrive,
 } from "./driveService.js";
-import { insertActaVisitRecord } from "./supabaseService.js";
+import { checkActasVisitTable, insertActaVisitRecord } from "./supabaseService.js";
 import { validateUploadPayload } from "./validation.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -134,6 +135,23 @@ function logStructured(level, event, data = {}) {
 
   pushAuditEvent(entry);
   return entry;
+}
+
+function serializeError(error) {
+  return {
+    code: error?.code || null,
+    message: error?.message || "Unknown error",
+    status: error?.status || error?.response?.status || null,
+    reason: error?.errors?.[0]?.reason || error?.response?.data?.error || null,
+  };
+}
+
+function isMissingEnvError(error) {
+  return String(error?.message || "").startsWith("Missing environment variable:");
+}
+
+function getGoogleApiReason(error) {
+  return String(error?.errors?.[0]?.reason || error?.response?.data?.error || "").toLowerCase();
 }
 
 function normalizeIdempotencyKey(value) {
@@ -259,6 +277,70 @@ app.get("/api/health", (_req, res) => {
     service: "actas-visitas-backend",
     idempotencyBuffered: idempotencyStore.size,
     auditBuffered: auditEvents.length,
+  });
+});
+
+app.get("/api/diagnostics/upload-readiness", async (req, res) => {
+  const requestId = req.headers["x-request-id"]?.toString() || crypto.randomUUID();
+  const checks = {
+    oauth: {
+      ok: true,
+      required: isOAuthConfigured(),
+      authorized: true,
+      message: null,
+    },
+    drive: {
+      ok: false,
+      folder: null,
+      message: null,
+    },
+    supabase: {
+      ok: false,
+      table: "actas_visita",
+      message: null,
+    },
+  };
+
+  try {
+    if (checks.oauth.required) {
+      checks.oauth.authorized = await hasStoredOAuthToken();
+      checks.oauth.ok = checks.oauth.authorized;
+      checks.oauth.message = checks.oauth.authorized ? null : "Google Drive requiere autorizacion OAuth.";
+      checks.oauth.authUrl = checks.oauth.authorized ? null : getGoogleOAuthUrl();
+    }
+  } catch (error) {
+    checks.oauth.ok = false;
+    checks.oauth.authorized = false;
+    checks.oauth.message = error?.message || "No se pudo validar OAuth.";
+  }
+
+  try {
+    checks.drive.folder = await checkDriveFolderAccess();
+    checks.drive.ok = true;
+  } catch (error) {
+    checks.drive.ok = false;
+    checks.drive.message = error?.message || "No se pudo validar la carpeta de Google Drive.";
+  }
+
+  try {
+    await checkActasVisitTable();
+    checks.supabase.ok = true;
+  } catch (error) {
+    checks.supabase.ok = false;
+    checks.supabase.message = error?.message || "No se pudo validar la tabla actas_visita.";
+  }
+
+  const ok = checks.oauth.ok && checks.drive.ok && checks.supabase.ok;
+  logStructured(ok ? "info" : "warn", "diagnostics.upload_readiness_checked", {
+    requestId,
+    ok,
+    checks,
+  });
+
+  return res.status(ok ? 200 : 503).json({
+    ok,
+    requestId,
+    checks,
   });
 });
 
@@ -482,6 +564,7 @@ app.post("/api/drive/upload-pdf", async (req, res) => {
         idempotencyKey,
         actaCode,
         warning: dbWarning,
+        error: serializeError(dbError),
       });
     }
 
@@ -526,7 +609,7 @@ app.post("/api/drive/upload-pdf", async (req, res) => {
         requestId,
         idempotencyKey,
         actaCode,
-        error: error.message,
+        error: serializeError(error),
       });
 
       return sendApiError(res, 400, {
@@ -562,7 +645,7 @@ app.post("/api/drive/upload-pdf", async (req, res) => {
         requestId,
         idempotencyKey,
         actaCode,
-        error: error?.message || "OAuth reauthorization required",
+        error: serializeError(error),
       });
 
       return sendApiError(res, 401, {
@@ -585,7 +668,7 @@ app.post("/api/drive/upload-pdf", async (req, res) => {
         requestId,
         idempotencyKey,
         actaCode,
-        error: error?.message || "OAuth token store failed",
+        error: serializeError(error),
         errorDetails: error?.details || null,
       });
 
@@ -607,7 +690,7 @@ app.post("/api/drive/upload-pdf", async (req, res) => {
         requestId,
         idempotencyKey,
         actaCode,
-        error: error?.message || "storageQuotaExceeded",
+        error: serializeError(error),
       });
 
       return sendApiError(res, 500, {
@@ -621,11 +704,86 @@ app.post("/api/drive/upload-pdf", async (req, res) => {
       });
     }
 
+    if (isMissingEnvError(error) || error?.code === "SUPABASE_NOT_CONFIGURED") {
+      logStructured("error", "upload.backend_configuration_error", {
+        requestId,
+        idempotencyKey,
+        actaCode,
+        error: serializeError(error),
+      });
+
+      return sendApiError(res, 500, {
+        code: "BACKEND_CONFIGURATION_ERROR",
+        message: "El backend no tiene completa la configuracion requerida.",
+        details: "Revisa variables de entorno de Google Drive/Supabase en el servidor.",
+        requestId,
+        idempotencyKey,
+        actaCode,
+      });
+    }
+
+    const googleStatus = error?.status || error?.response?.status || null;
+    const googleReason = getGoogleApiReason(error);
+
+    if (googleStatus === 403) {
+      logStructured("error", "upload.drive_forbidden", {
+        requestId,
+        idempotencyKey,
+        actaCode,
+        error: serializeError(error),
+      });
+
+      return sendApiError(res, 403, {
+        code: "DRIVE_FORBIDDEN",
+        message: "Google Drive rechazo la subida por permisos insuficientes.",
+        details: "Verifica que la cuenta autorizada tenga acceso de escritura a la carpeta destino.",
+        requestId,
+        idempotencyKey,
+        actaCode,
+      });
+    }
+
+    if (googleStatus === 404 || googleReason === "notfound") {
+      logStructured("error", "upload.drive_folder_not_found", {
+        requestId,
+        idempotencyKey,
+        actaCode,
+        error: serializeError(error),
+      });
+
+      return sendApiError(res, 404, {
+        code: "DRIVE_FOLDER_NOT_FOUND",
+        message: "No se encontro la carpeta destino de Google Drive.",
+        details: "Verifica GOOGLE_DRIVE_FOLDER_ID y los permisos de la cuenta autorizada.",
+        requestId,
+        idempotencyKey,
+        actaCode,
+      });
+    }
+
+    if (googleStatus === 429 || googleReason.includes("ratelimit") || googleReason.includes("userratelimit")) {
+      logStructured("error", "upload.drive_rate_limited", {
+        requestId,
+        idempotencyKey,
+        actaCode,
+        error: serializeError(error),
+      });
+
+      return sendApiError(res, 429, {
+        code: "DRIVE_RATE_LIMITED",
+        message: "Google Drive limito temporalmente las subidas.",
+        details: "Espera unos minutos y vuelve a intentar.",
+        requestId,
+        idempotencyKey,
+        actaCode,
+      });
+    }
+
     logStructured("error", "upload.failed", {
       requestId,
       idempotencyKey,
       actaCode,
-      error: error?.message || "Unknown error",
+      error: serializeError(error),
     });
 
     return sendApiError(res, 500, {

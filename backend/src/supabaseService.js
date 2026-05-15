@@ -237,3 +237,23 @@ export async function insertActaVisitRecord({
 
   return data;
 }
+
+export async function checkActasVisitTable() {
+  const supabase = getSupabaseClient();
+
+  try {
+    const { error } = await supabase.from("actas_visita").select("id").limit(1);
+    if (error) {
+      const dbError = formatSupabaseError("Supabase actas_visita table check failed", error);
+      dbError.code = "SUPABASE_ACTAS_TABLE_CHECK_FAILED";
+      throw dbError;
+    }
+
+    return true;
+  } catch (error) {
+    if (error?.code === "SUPABASE_ACTAS_TABLE_CHECK_FAILED") throw error;
+    const dbError = formatSupabaseError("Supabase actas_visita table check failed", error);
+    dbError.code = "SUPABASE_ACTAS_TABLE_CHECK_FAILED";
+    throw dbError;
+  }
+}

@@ -340,3 +340,33 @@ export async function uploadPdfToDrive({ fileName, pdfBuffer, fields = {} }) {
     throw error;
   }
 }
+
+export async function checkDriveFolderAccess() {
+  const rootFolderId = requiredEnv("GOOGLE_DRIVE_FOLDER_ID");
+  const drive = await buildDriveClient();
+
+  const response = await drive.files.get({
+    fileId: rootFolderId,
+    supportsAllDrives: true,
+    fields: "id,name,mimeType,capabilities/canAddChildren",
+  });
+
+  const folder = response.data;
+  if (folder?.mimeType !== DRIVE_FOLDER_MIME) {
+    const error = new Error("GOOGLE_DRIVE_FOLDER_ID no corresponde a una carpeta de Google Drive.");
+    error.code = "DRIVE_TARGET_NOT_FOLDER";
+    throw error;
+  }
+
+  if (folder?.capabilities?.canAddChildren === false) {
+    const error = new Error("La cuenta autorizada no puede crear archivos dentro de la carpeta de Google Drive.");
+    error.code = "DRIVE_TARGET_NOT_WRITABLE";
+    throw error;
+  }
+
+  return {
+    id: folder.id,
+    name: folder.name,
+    writable: folder?.capabilities?.canAddChildren !== false,
+  };
+}
