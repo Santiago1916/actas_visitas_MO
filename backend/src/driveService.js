@@ -111,6 +111,28 @@ function isInvalidGrantError(error) {
   );
 }
 
+function isGoogleNotFoundError(error) {
+  const status = error?.status || error?.response?.status;
+  const reason = String(error?.errors?.[0]?.reason || error?.response?.data?.error || "").toLowerCase();
+  const message = String(error?.message || "").toLowerCase();
+  return status === 404 || reason === "notfound" || message.includes("file not found");
+}
+
+function isGoogleForbiddenError(error) {
+  const status = error?.status || error?.response?.status;
+  return status === 403;
+}
+
+function buildLimitedFolderValidation(rootFolderId, warning) {
+  return {
+    id: rootFolderId,
+    name: null,
+    writable: null,
+    validationLimited: true,
+    warning,
+  };
+}
+
 export function isOAuthConfigured() {
   return Boolean(getOAuthConfig());
 }
@@ -345,11 +367,32 @@ export async function checkDriveFolderAccess() {
   const rootFolderId = requiredEnv("GOOGLE_DRIVE_FOLDER_ID");
   const drive = await buildDriveClient();
 
-  const response = await drive.files.get({
-    fileId: rootFolderId,
-    supportsAllDrives: true,
-    fields: "id,name,mimeType,capabilities/canAddChildren",
-  });
+  let response;
+  try {
+    response = await drive.files.get({
+      fileId: rootFolderId,
+      supportsAllDrives: true,
+      fields: "id,name,mimeType,capabilities/canAddChildren",
+    });
+  } catch (error) {
+    if (isGoogleNotFoundError(error)) {
+      return buildLimitedFolderValidation(
+        rootFolderId,
+        "No se pudo leer la metadata de la carpeta con el scope actual de Google Drive; se permitira intentar la subida."
+      );
+    }
+
+    if (isGoogleForbiddenError(error)) {
+      const accessError = new Error(
+        "La cuenta autorizada no tiene permisos para acceder a la carpeta de Google Drive configurada."
+      );
+      accessError.code = "DRIVE_FORBIDDEN";
+      accessError.cause = error;
+      throw accessError;
+    }
+
+    throw error;
+  }
 
   const folder = response.data;
   if (folder?.mimeType !== DRIVE_FOLDER_MIME) {
