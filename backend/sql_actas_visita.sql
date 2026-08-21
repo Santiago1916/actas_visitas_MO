@@ -17,6 +17,7 @@ create table if not exists public.actas_visita (
   temas_tratados text,
   compromisos text,
   observaciones text,
+  calificacion_servicio smallint,
   latitud double precision,
   longitud double precision,
   ubicacion_capturada_at timestamptz,
@@ -30,7 +31,8 @@ create table if not exists public.actas_visita (
   drive_week_of_month integer,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint actas_visita_week_chk check (drive_week_of_month is null or drive_week_of_month between 1 and 6)
+  constraint actas_visita_week_chk check (drive_week_of_month is null or drive_week_of_month between 1 and 6),
+  constraint actas_visita_calificacion_chk check (calificacion_servicio is null or calificacion_servicio between 1 and 5)
 );
 
 create index if not exists idx_actas_visita_fecha on public.actas_visita (fecha desc);
