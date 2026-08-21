@@ -200,6 +200,7 @@ export async function insertActaVisitRecord({
     temas_tratados: nullable(fields.temasTratados),
     compromisos: nullable(fields.compromisos),
     observaciones: nullable(fields.observaciones),
+    calificacion_servicio: numberOrNull(fields.calificacionServicio),
     latitud: numberOrNull(location?.lat, 8),
     longitud: numberOrNull(location?.lng, 8),
     ubicacion_capturada_at: nullable(location?.capturedAt),

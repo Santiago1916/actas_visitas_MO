@@ -33,6 +33,13 @@ const GEOLOCATION_FALLBACK_OPTIONS = Object.freeze({
   timeout: 10000,
   maximumAge: 5 * 60 * 1000,
 });
+const SERVICE_RATING_OPTIONS = Object.freeze([
+  { value: "1", hint: "Muy malo" },
+  { value: "2", hint: "Malo" },
+  { value: "3", hint: "Regular" },
+  { value: "4", hint: "Bueno" },
+  { value: "5", hint: "Excelente" },
+]);
 const DATA_POLICY_TITLE = "ACEPTACIÓN DE LA ACTIVIDAD Y TRATAMIENTO DE DATOS";
 const DATA_POLICY_EMAIL = "servicioalcliente@mundoocupacional.com";
 const DATA_POLICY_WEB_URL = "https://www.mundoocupacional.com";
@@ -115,6 +122,10 @@ const formSchema = z
     temasTratados: z.string().trim().min(5, "Ingresa los temas tratados.").max(6000, "Texto demasiado largo."),
     compromisos: z.string().trim().min(1, "Ingresa los planes de accion.").max(4000, "Texto demasiado largo."),
     observaciones: z.string().trim().min(1, "Ingresa las observaciones.").max(4000, "Texto demasiado largo."),
+    calificacionServicio: z
+      .string()
+      .trim()
+      .regex(/^[1-5]$/, "Selecciona la calificacion del servicio del asesor (1 a 5)."),
   })
   .superRefine((value, ctx) => {
     if (value.horaFin < value.horaInicio) {
@@ -141,6 +152,7 @@ const initialData = {
   temasTratados: "",
   compromisos: "",
   observaciones: "",
+  calificacionServicio: "",
 };
 
 let logoDataUrlPromise = null;
@@ -967,6 +979,15 @@ export default function Page() {
     drawTextSection("Planes de accion", formData.compromisos, 5);
     drawTextSection("Observaciones", formData.observaciones, 5);
 
+    const ratingOption = SERVICE_RATING_OPTIONS.find(
+      (option) => option.value === String(formData.calificacionServicio)
+    );
+    drawTextSection(
+      "Calificacion del servicio del asesor (1 a 5)",
+      ratingOption ? `${ratingOption.value} de 5 - ${ratingOption.hint}` : "",
+      1
+    );
+
     const asesorSignatureRaw = asesorRef.current?.toDataURL() || "";
     const responsableSignatureRaw = responsableRef.current?.toDataURL() || "";
     const [asesorSignature, responsableSignature] = await Promise.all([
@@ -1651,6 +1672,42 @@ V = Verificar`}
                   {errors.aceptaCondicionesDatos ? <p className="error">{errors.aceptaCondicionesDatos}</p> : null}
                 </div>
               </div>
+            </section>
+
+            <section className="glass-card panel">
+              <fieldset className="rating-fieldset">
+                <legend className="field-label">
+                  Calificacion del servicio del asesor
+                  <span className="required-indicator" aria-hidden="true">
+                    *
+                  </span>
+                </legend>
+                <p className="rating-help">
+                  De 1 (muy malo) a 5 (excelente), como califica el servicio recibido del asesor.
+                </p>
+                <div className="rating-options">
+                  {SERVICE_RATING_OPTIONS.map((option) => (
+                    <label
+                      key={option.value}
+                      className={`rating-option${
+                        formData.calificacionServicio === option.value ? " is-selected" : ""
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="calificacionServicio"
+                        value={option.value}
+                        checked={formData.calificacionServicio === option.value}
+                        onChange={onFieldChange}
+                        required
+                      />
+                      <span className="rating-score">{option.value}</span>
+                      <span className="rating-hint">{option.hint}</span>
+                    </label>
+                  ))}
+                </div>
+                {errors.calificacionServicio ? <p className="error">{errors.calificacionServicio}</p> : null}
+              </fieldset>
             </section>
 
             <section className="actions no-print">

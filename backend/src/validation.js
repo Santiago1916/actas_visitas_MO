@@ -47,6 +47,11 @@ const fieldsSchema = z
     temasTratados: requiredText("Temas tratados", 6000),
     compromisos: z.string().trim().max(4000, "Compromisos supera el maximo permitido (4000)."),
     observaciones: z.string().trim().max(4000, "Observaciones supera el maximo permitido (4000)."),
+    calificacionServicio: z.coerce
+      .number()
+      .int("La calificacion del servicio debe ser un numero entero.")
+      .min(1, "La calificacion del servicio debe estar entre 1 y 5.")
+      .max(5, "La calificacion del servicio debe estar entre 1 y 5."),
   })
   .superRefine((value, ctx) => {
     if (value.horaFin < value.horaInicio) {
